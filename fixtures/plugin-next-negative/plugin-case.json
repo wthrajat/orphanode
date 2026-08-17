@@ -1,0 +1,9 @@
+{
+  "plugin": "next",
+  "scenario": "negative",
+  "expected": {
+    "coverage": "not-applicable",
+    "detected": false,
+    "entries": []
+  }
+}

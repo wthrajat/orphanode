@@ -1,0 +1,6 @@
+{
+  "entry": "packages/app/src/index.ts",
+  "files": [
+    "packages/app/src/index.ts"
+  ]
+}

@@ -1,0 +1,1 @@
+globalThis.fixtureRegistered = true;

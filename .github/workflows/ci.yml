@@ -1,0 +1,294 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+      - name: Check formatting
+        run: cargo +stable fmt --all --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --component clippy --no-self-update
+      - name: Lint workspace
+        run: cargo +stable clippy --workspace --all-targets --all-features -- -D warnings
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - name: Build documentation
+        run: cargo +stable doc --workspace --all-features --no-deps
+
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - name: Run tests
+        run: cargo +stable test --workspace --all-targets --all-features
+
+  msrv:
+    name: MSRV (Rust 1.95)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install MSRV
+        run: rustup toolchain install 1.95.0 --profile minimal --no-self-update
+      - name: Check all targets at MSRV
+        run: cargo +1.95.0 check --workspace --all-targets --all-features
+
+  package:
+    name: Package dry run
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - name: Package orphanode-core
+        run: cargo +stable package --package orphanode-core
+      # The extracted CLI package cannot resolve an unreleased core version in
+      # ordinary CI. Workspace tests cover the CLI; release verifies it after
+      # publishing core and waiting for crates.io propagation.
+      - name: Package orphanode-cli
+        run: cargo +stable package --package orphanode-cli --no-verify
+
+  dependencies:
+    name: Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check advisories, licenses, bans, and sources
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          rust-version: "1.95.0"
+
+  npm-packages:
+    name: npm package tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.11.1
+      - name: Test launcher and package distribution
+        run: npm test --prefix packages/orphanode
+      - name: Test TypeScript worker protocol
+        run: npm test --prefix packages/typescript-worker
+
+  report-contract:
+    name: JSON schema and determinism
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.11.1
+      - name: Build CLI
+        run: cargo +stable build --package orphanode-cli
+      - name: Generate reports and check deterministic output
+        run: >-
+          node benchmarks/contract.mjs
+          --binary target/debug/orphanode
+          --output target/contract-reports
+      - name: Validate every report against the public schema
+        run: >-
+          npx --yes ajv-cli@5.0.0 validate
+          --spec=draft2020
+          --strict=true
+          -s schemas/scan-report-v0.2.schema.json
+          -d 'target/contract-reports/*.json'
+
+  resolver-differential:
+    name: Resolver differential
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.11.1
+      - name: Install the TypeScript reference resolver
+        shell: bash
+        run: >-
+          npm install --ignore-scripts --no-save --package-lock=false
+          --prefix "$RUNNER_TEMP/resolver-tools" typescript@5.9.3
+      - name: Check pinned Node.js and TypeScript reference results
+        shell: bash
+        env:
+          TYPESCRIPT_PATH: ${{ runner.temp }}/resolver-tools/node_modules/typescript
+        run: node fixtures/reference/check-references.mjs
+      - name: Build CLI
+        run: cargo +stable build --package orphanode-cli
+      - name: Compare with Node.js and TypeScript
+        shell: bash
+        run: >-
+          node benchmarks/resolver-differential.mjs
+          --binary target/debug/orphanode
+          --typescript "$RUNNER_TEMP/resolver-tools/node_modules/typescript/lib/typescript.js"
+
+  npm-smoke:
+    name: npm smoke (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64-gnu
+            binary: orphanode
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: darwin-arm64
+            binary: orphanode
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            platform: darwin-x64
+            binary: orphanode
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: win32-x64-msvc
+            binary: orphanode.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust target
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup target add --toolchain stable "${{ matrix.target }}"
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.11.1
+      - name: Build native binary
+        run: cargo +stable build --release --package orphanode-cli --target ${{ matrix.target }}
+      - name: Pack, install, and smoke-test local npm packages
+        shell: bash
+        run: >-
+          node benchmarks/npm-smoke.mjs smoke
+          --platform ${{ matrix.platform }}
+          --binary target/${{ matrix.target }}/release/${{ matrix.binary }}
+          --output "$RUNNER_TEMP/orphanode-npm"
+
+  benchmark:
+    name: Performance budgets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ORPHANODE_BENCHMARK_RUNNER: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.11.1
+      - name: Build release CLI
+        run: cargo +stable build --release --package orphanode-cli
+      - name: Enforce cold, warm, and edit-cycle budgets
+        run: >-
+          node benchmarks/benchmark.mjs
+          --binary target/release/orphanode
+          --output target/benchmark-result.json
+      - name: Upload benchmark result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: benchmark-ubuntu-24.04
+          path: target/benchmark-result.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30

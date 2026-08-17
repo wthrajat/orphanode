@@ -1,0 +1,626 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ORPHANODE_BENCHMARK_RUNNER: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.11.1
+          package-manager-cache: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt --no-self-update
+      - name: Resolve the release dependency graph once
+        run: cargo +stable generate-lockfile
+      - name: Upload the release lockfile
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cargo-lock
+          path: Cargo.lock
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Match npm package versions to tag
+        shell: bash
+        run: >-
+          node benchmarks/npm-smoke.mjs validate
+          --version "${GITHUB_REF_NAME#v}"
+      - name: Test npm distribution and worker packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test --prefix packages/orphanode
+          npm test --prefix packages/typescript-worker
+      - name: Match package versions to tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          cargo +stable metadata --locked --no-deps --format-version 1 \
+            | jq -e --arg version "$version" \
+              'all(.packages[]; .version == $version)'
+      - name: Check formatting
+        run: cargo +stable fmt --all --check
+      - name: Lint workspace
+        run: cargo +stable clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo +stable doc --locked --workspace --all-features --no-deps
+      - name: Run tests
+        run: cargo +stable test --locked --workspace --all-features
+      - name: Build release CLI for contract gates
+        run: cargo +stable build --locked --release --package orphanode-cli
+      - name: Generate reports and check deterministic output
+        run: >-
+          node benchmarks/contract.mjs
+          --binary target/release/orphanode
+          --output target/release-contract-reports
+      - name: Validate every report against the public schema
+        run: >-
+          npx --yes ajv-cli@5.0.0 validate
+          --spec=draft2020
+          --strict=true
+          -s schemas/scan-report-v0.2.schema.json
+          -d 'target/release-contract-reports/*.json'
+      - name: Install the TypeScript reference resolver
+        shell: bash
+        run: >-
+          npm install --ignore-scripts --no-save --package-lock=false
+          --prefix "$RUNNER_TEMP/resolver-tools" typescript@5.9.3
+      - name: Check pinned resolver references
+        shell: bash
+        env:
+          TYPESCRIPT_PATH: ${{ runner.temp }}/resolver-tools/node_modules/typescript
+        run: node fixtures/reference/check-references.mjs
+      - name: Compare OrphaNode with Node.js and TypeScript
+        shell: bash
+        run: >-
+          node benchmarks/resolver-differential.mjs
+          --binary target/release/orphanode
+          --typescript "$RUNNER_TEMP/resolver-tools/node_modules/typescript/lib/typescript.js"
+      - name: Enforce release performance budgets
+        run: >-
+          node benchmarks/benchmark.mjs
+          --binary target/release/orphanode
+          --output target/release-benchmark-result.json
+      - name: Preserve release benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-benchmark-${{ github.ref_name }}
+          path: target/release-benchmark-result.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+      - name: Package orphanode-core
+        run: cargo +stable package --locked --package orphanode-core
+      - name: Package orphanode-cli
+        run: cargo +stable package --locked --package orphanode-cli --no-verify
+      - name: Check dependencies
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          arguments: --locked
+          rust-version: "1.95.0"
+
+  fuzz:
+    name: Bounded release fuzzing
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RUST_BACKTRACE: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned nightly Rust
+        run: >-
+          rustup toolchain install nightly-2026-08-01
+          --profile minimal
+          --no-self-update
+      - name: Install cargo-fuzz
+        run: >-
+          cargo +nightly-2026-08-01 install cargo-fuzz
+          --version 0.13.2
+          --locked
+      - name: Run bounded fuzz targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r target max_length; do
+            cargo +nightly-2026-08-01 fuzz run \
+              "$target" \
+              "fuzz/corpus/$target" \
+              -- \
+              -runs=256 \
+              -max_total_time=30 \
+              "-max_len=$max_length" \
+              -timeout=10 \
+              -rss_limit_mb=2048
+          done <<'TARGETS'
+          parser_facts 65536
+          config_manifest 32768
+          resolver_specifier 4096
+          plugin_protocol 65536
+          cache_corruption 65536
+          TARGETS
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 14
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs:
+      - validate
+      - fuzz
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64-gnu
+            archive: tar
+            binary: orphanode
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: darwin-arm64
+            archive: tar
+            binary: orphanode
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            platform: darwin-x64
+            archive: tar
+            binary: orphanode
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: win32-x64-msvc
+            archive: zip
+            binary: orphanode.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust target
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup target add --toolchain stable "${{ matrix.target }}"
+      - name: Download the validated release lockfile
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cargo-lock
+          path: .
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.11.1
+          package-manager-cache: false
+      - name: Build binary
+        run: cargo +stable build --locked --release --package orphanode-cli --target ${{ matrix.target }}
+      - name: Smoke-test binary
+        shell: bash
+        run: '"target/${{ matrix.target }}/release/${{ matrix.binary }}" --version'
+      - name: Create Unix archive
+        if: matrix.archive == 'tar'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_name="orphanode-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "dist/${archive_name}"
+          cp "target/${{ matrix.target }}/release/orphanode" "dist/${archive_name}/"
+          cp README.md "dist/${archive_name}/"
+          for license in LICENSE LICENSE-*; do
+            if [[ -f "$license" ]]; then
+              cp "$license" "dist/${archive_name}/"
+            fi
+          done
+          tar -czf "dist/${archive_name}.tar.gz" -C dist "$archive_name"
+          (
+            cd dist
+            shasum -a 256 "${archive_name}.tar.gz" > "${archive_name}.tar.gz.sha256"
+          )
+      - name: Create Windows archive
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $archiveName = "orphanode-$env:GITHUB_REF_NAME-${{ matrix.target }}"
+          $archiveDirectory = Join-Path dist $archiveName
+          New-Item -ItemType Directory -Path $archiveDirectory | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/orphanode.exe" $archiveDirectory
+          Copy-Item README.md $archiveDirectory
+          Get-ChildItem -Path LICENSE* -File | Copy-Item -Destination $archiveDirectory
+          $archivePath = Join-Path dist "$archiveName.zip"
+          Compress-Archive -Path $archiveDirectory -DestinationPath $archivePath
+          $hash = (Get-FileHash -Algorithm SHA256 $archivePath).Hash.ToLowerInvariant()
+          "$hash  $archiveName.zip" | Set-Content -NoNewline "$archivePath.sha256"
+      - name: Pack and install-test npm packages
+        shell: bash
+        run: >-
+          node benchmarks/npm-smoke.mjs smoke
+          --platform ${{ matrix.platform }}
+          --binary target/${{ matrix.target }}/release/${{ matrix.binary }}
+          --output "$RUNNER_TEMP/orphanode-npm"
+          --version "${GITHUB_REF_NAME#v}"
+      - name: Pack publishable platform package
+        shell: bash
+        run: >-
+          node benchmarks/npm-smoke.mjs pack-platform
+          --platform ${{ matrix.platform }}
+          --binary target/${{ matrix.target }}/release/${{ matrix.binary }}
+          --output dist
+          --version "${GITHUB_REF_NAME#v}"
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-native-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.tgz
+            dist/*.sha256
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  publish:
+    name: Publish crates.io packages
+    needs:
+      - validate
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    environment: release
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - name: Download the validated release lockfile
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cargo-lock
+          path: .
+      - name: Authenticate to crates.io
+        id: crates-io
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+      - name: Publish crates in dependency order
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io.outputs.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+
+          crate_version_exists() {
+            local crate_name="$1"
+            local crate_version="$2"
+            local status
+            status="$(curl --silent --show-error --location \
+              --retry 3 --retry-all-errors \
+              --output /dev/null --write-out '%{http_code}' \
+              "https://crates.io/api/v1/crates/${crate_name}/${crate_version}")"
+            case "$status" in
+              200) return 0 ;;
+              404) return 1 ;;
+              *)
+                echo "crates.io returned HTTP ${status} for ${crate_name}@${crate_version}" >&2
+                exit 1
+                ;;
+            esac
+          }
+
+          if crate_version_exists orphanode-core "$version"; then
+            echo "orphanode-core@$version is already published"
+          else
+            cargo +stable publish --locked --package orphanode-core
+          fi
+
+          for attempt in {1..30}; do
+            if cargo +stable info "orphanode-core@$version" >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "$attempt" -eq 30 ]]; then
+              echo "orphanode-core@$version did not become visible on crates.io" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          if crate_version_exists orphanode-cli "$version"; then
+            echo "orphanode-cli@$version is already published"
+          else
+            cargo +stable publish --locked --package orphanode-cli
+          fi
+
+  npm-publish:
+    name: Publish npm packages
+    needs:
+      - build
+      - publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    environment: release
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Node.js with npm trusted publishing support
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.11.1
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Require npm 11.5.1 or newer
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm_version="$(npm --version)"
+          node -e '
+            const [major, minor] = process.argv[1].split(".").map(Number);
+            if (major < 11 || (major === 11 && minor < 5)) process.exit(1);
+          ' "$npm_version"
+      - name: Download native package tarballs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-native-*
+          path: dist
+          merge-multiple: true
+      - name: Verify downloaded package checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          checksums=( *.tgz.sha256 )
+          if [[ "${#checksums[@]}" -ne 4 ]]; then
+            echo "expected four platform package checksums, found ${#checksums[@]}" >&2
+            exit 1
+          fi
+          sha256sum --check "${checksums[@]}"
+      - name: Pack worker and launcher packages
+        id: launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          node benchmarks/npm-smoke.mjs pack-launcher \
+            --output dist \
+            --version "$version"
+          node benchmarks/npm-smoke.mjs pack-worker \
+            --output dist \
+            --version "$version"
+          (
+            cd dist
+            sha256sum --check "orphanode-${version}.tgz.sha256"
+            sha256sum --check "orphanode-typescript-worker-${version}.tgz.sha256"
+          )
+          echo "tarball=dist/orphanode-${version}.tgz" >> "$GITHUB_OUTPUT"
+          echo "checksum=dist/orphanode-${version}.tgz.sha256" >> "$GITHUB_OUTPUT"
+          echo "worker_tarball=dist/orphanode-typescript-worker-${version}.tgz" >> "$GITHUB_OUTPUT"
+          echo "worker_checksum=dist/orphanode-typescript-worker-${version}.tgz.sha256" >> "$GITHUB_OUTPUT"
+      - name: Upload launcher package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-npm-launcher
+          path: |
+            ${{ steps.launcher.outputs.tarball }}
+            ${{ steps.launcher.outputs.checksum }}
+            ${{ steps.launcher.outputs.worker_tarball }}
+            ${{ steps.launcher.outputs.worker_checksum }}
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Publish platform packages, then launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+
+          npm_version_exists() {
+            local package_name="$1"
+            local package_version="$2"
+            local encoded_name status
+            encoded_name="$(jq -rn --arg value "$package_name" '$value | @uri')"
+            status="$(curl --silent --show-error --location \
+              --retry 3 --retry-all-errors \
+              --output /dev/null --write-out '%{http_code}' \
+              "https://registry.npmjs.org/${encoded_name}/${package_version}")"
+            case "$status" in
+              200) return 0 ;;
+              404) return 1 ;;
+              *)
+                echo "npm registry returned HTTP ${status} for ${package_name}@${package_version}" >&2
+                exit 1
+                ;;
+            esac
+          }
+
+          publish_package() {
+            local package_name="$1"
+            local tarball="$2"
+            if [[ ! -f "$tarball" ]]; then
+              echo "missing release package: $tarball" >&2
+              exit 1
+            fi
+            if npm_version_exists "$package_name" "$version"; then
+              echo "$package_name@$version is already published"
+            else
+              npm publish "$tarball" --access public --provenance
+            fi
+          }
+
+          publish_package \
+            "@orphanode/linux-x64-gnu" \
+            "dist/orphanode-linux-x64-gnu-${version}.tgz"
+          publish_package \
+            "@orphanode/darwin-arm64" \
+            "dist/orphanode-darwin-arm64-${version}.tgz"
+          publish_package \
+            "@orphanode/darwin-x64" \
+            "dist/orphanode-darwin-x64-${version}.tgz"
+          publish_package \
+            "@orphanode/win32-x64-msvc" \
+            "dist/orphanode-win32-x64-msvc-${version}.tgz"
+          publish_package \
+            "@orphanode/typescript-worker" \
+            "dist/orphanode-typescript-worker-${version}.tgz"
+
+          for package_name in \
+            "@orphanode/linux-x64-gnu" \
+            "@orphanode/darwin-arm64" \
+            "@orphanode/darwin-x64" \
+            "@orphanode/win32-x64-msvc" \
+            "@orphanode/typescript-worker"; do
+            for attempt in {1..30}; do
+              if npm_version_exists "$package_name" "$version"; then
+                break
+              fi
+              if [[ "$attempt" -eq 30 ]]; then
+                echo "$package_name@$version did not become visible on npm" >&2
+                exit 1
+              fi
+              sleep 10
+            done
+          done
+
+          publish_package "orphanode" "dist/orphanode-${version}.tgz"
+
+  github-release:
+    name: Create GitHub release
+    needs:
+      - build
+      - npm-publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download release archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Verify downloaded checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          checksums=( *.sha256 )
+          if [[ "${#checksums[@]}" -ne 10 ]]; then
+            echo "expected ten per-artifact checksums, found ${#checksums[@]}" >&2
+            exit 1
+          fi
+          sha256sum --check "${checksums[@]}"
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/orphanode-${{ github.ref_name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Create combined checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          find . -maxdepth 1 -type f \
+            \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.tgz' -o -name '*.spdx.json' \) \
+            -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sed 's#  \./#  #' > SHA256SUMS
+          test "$(wc -l < SHA256SUMS)" -eq 11
+      - name: Attest release provenance
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Attest release SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.tgz
+          sbom-path: dist/orphanode-${{ github.ref_name }}.spdx.json
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --generate-notes \
+              --title "$GITHUB_REF_NAME" \
+              --verify-tag
+          fi
+      - name: Download release assets and verify checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verification_directory="$(mktemp -d)"
+          trap 'rm -rf "$verification_directory"' EXIT
+          gh release download "$GITHUB_REF_NAME" --dir "$verification_directory"
+          cd "$verification_directory"
+          sha256sum --check SHA256SUMS

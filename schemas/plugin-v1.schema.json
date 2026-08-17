@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orphanode.dev/schema/plugin-v1.json",
+  "title": "OrphaNode declarative plugin v1",
+  "description": "Static plugin facts. A plugin contributes evidence and roots; it does not decide liveness or suppress findings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "id",
+    "version",
+    "displayName",
+    "capabilities",
+    "detection",
+    "contributions",
+    "unsupportedCases"
+  ],
+  "properties": {
+    "$schema": { "const": "https://orphanode.dev/schema/plugin-v1.json" },
+    "apiVersion": { "const": "orphanode.plugin/v1" },
+    "id": { "$ref": "#/$defs/identifier" },
+    "version": { "$ref": "#/$defs/version" },
+    "displayName": { "$ref": "#/$defs/reason" },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "detection": { "$ref": "#/$defs/detection" },
+    "contributions": { "$ref": "#/$defs/contributions" },
+    "unsupportedCases": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/unsupportedCase" }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9._-]*$"
+    },
+    "diagnosticCode": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^plugin_[a-z0-9._-]+$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "nonEmptyText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "symbolName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "workspacePattern": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*:)(?!.*\\\\)(?!.*[\\u0000-\\u001F\\u007F])(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//).+$",
+      "description": "Workspace-relative, forward-slash path or glob. Parent components, absolute paths, and backslashes are forbidden. Runtime validation also checks symlink containment for concrete paths."
+    },
+    "referenceName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^./\\\\\\s][^\\\\\\s]*$|^@[^/\\\\\\s]+/[^/\\\\\\s]+(?:/[^\\\\\\s]+)*$"
+    },
+    "capability": {
+      "enum": [
+        "entries",
+        "project_files",
+        "config_files",
+        "exclusions",
+        "file_edges",
+        "references",
+        "export_roots",
+        "member_roots",
+        "generated_files",
+        "dynamic_imports",
+        "target_conditions",
+        "file_transforms",
+        "diagnostics"
+      ]
+    },
+    "stringSet": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "patternContribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pattern", "reason"],
+      "properties": {
+        "pattern": { "$ref": "#/$defs/workspacePattern" },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "patternContributions": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/patternContribution" }
+    },
+    "detection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packageNames": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/referenceName" }
+        },
+        "packagePrefixes": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 129,
+            "pattern": "^(?!.*//)[^\\\\\\s]+/$"
+          }
+        },
+        "configFiles": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/workspacePattern" }
+        }
+      }
+    },
+    "fileEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fromPattern", "toPattern", "reason"],
+      "properties": {
+        "fromPattern": { "$ref": "#/$defs/workspacePattern" },
+        "toPattern": { "$ref": "#/$defs/workspacePattern" },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "reason"],
+      "properties": {
+        "name": { "$ref": "#/$defs/referenceName" },
+        "kind": { "enum": ["package", "binary"] },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "exportRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modulePattern", "exportName", "reason"],
+      "properties": {
+        "modulePattern": { "$ref": "#/$defs/workspacePattern" },
+        "exportName": { "$ref": "#/$defs/symbolName" },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "memberRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modulePattern", "exportName", "memberName", "reason"],
+      "properties": {
+        "modulePattern": { "$ref": "#/$defs/workspacePattern" },
+        "exportName": { "$ref": "#/$defs/symbolName" },
+        "memberName": { "$ref": "#/$defs/symbolName" },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "dynamicImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["importerPattern", "specifierPattern", "reason"],
+      "properties": {
+        "importerPattern": { "$ref": "#/$defs/workspacePattern" },
+        "specifierPattern": { "$ref": "#/$defs/workspacePattern" },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "fileTransform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourcePattern", "outputExtensions", "reason"],
+      "properties": {
+        "sourcePattern": { "$ref": "#/$defs/workspacePattern" },
+        "outputExtensions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^\\.[a-z0-9]+$",
+            "maxLength": 32
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message", "blocksReachability"],
+      "properties": {
+        "path": { "$ref": "#/$defs/workspacePattern" },
+        "code": { "$ref": "#/$defs/diagnosticCode" },
+        "severity": { "enum": ["warning", "error"] },
+        "message": { "$ref": "#/$defs/nonEmptyText" },
+        "blocksReachability": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "severity": { "const": "error" } }, "required": ["severity"] },
+          "then": { "properties": { "blocksReachability": { "const": true } } }
+        }
+      ]
+    },
+    "unsupportedCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "summary", "blocksReachability"],
+      "properties": {
+        "code": { "$ref": "#/$defs/diagnosticCode" },
+        "summary": { "$ref": "#/$defs/nonEmptyText" },
+        "blocksReachability": { "const": true }
+      }
+    },
+    "contributions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entryPatterns": { "$ref": "#/$defs/patternContributions" },
+        "projectFilePatterns": { "$ref": "#/$defs/patternContributions" },
+        "configFilePatterns": { "$ref": "#/$defs/patternContributions" },
+        "exclusionPatterns": { "$ref": "#/$defs/patternContributions" },
+        "generatedFilePatterns": { "$ref": "#/$defs/patternContributions" },
+        "fileEdges": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/fileEdge" }
+        },
+        "references": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/reference" }
+        },
+        "exportRoots": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/exportRoot" }
+        },
+        "memberRoots": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/memberRoot" }
+        },
+        "dynamicImports": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/dynamicImport" }
+        },
+        "targetConditions": { "$ref": "#/$defs/stringSet" },
+        "fileTransforms": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/fileTransform" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/diagnostic" }
+        }
+      }
+    }
+  }
+}

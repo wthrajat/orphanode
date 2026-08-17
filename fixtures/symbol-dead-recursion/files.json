@@ -1,0 +1,7 @@
+{
+  "entry": "src/index.ts",
+  "files": [
+    "src/graph.ts",
+    "src/index.ts"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 2,
+  "runner": "ubuntu-24.04",
+  "node": "24.11.1",
+  "corpus": {
+    "version": "synthetic-million-line-chain-v2",
+    "fileCount": 1000,
+    "linesPerFile": 1000,
+    "lineCount": 1000000,
+    "incrementalFile": "src/reachable-0999.js",
+    "sha256": "fec43ffe1b2303d505c37593c6f5b2df8f3e945e6e8c4da54e5b33231bbcb03e"
+  },
+  "sampleCounts": {
+    "cold": 3,
+    "warm": 7,
+    "incremental": 5
+  },
+  "expectations": {
+    "exitCode": 0,
+    "reportSchemaVersion": "0.2",
+    "findings": 0
+  },
+  "absoluteBudgets": {
+    "coldMedianMs": 5000,
+    "warmMedianMs": 500,
+    "incrementalMedianMs": 750,
+    "peakRssMiBExclusive": 750
+  },
+  "normalizedRegression": {
+    "reference": "million-line-engineering-reference-v1",
+    "maximumPercent": 10,
+    "referenceMedianMsPerMillionLines": {
+      "cold": 4500,
+      "warm": 450,
+      "incremental": 675
+    }
+  }
+}

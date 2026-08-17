@@ -1,0 +1,34 @@
+{
+  "engine": "typescript",
+  "version": "5.9.3",
+  "cases": [
+    {
+      "id": "declaration-import",
+      "resolved": "declaration-type-only/src/contracts.ts"
+    },
+    {
+      "id": "declaration-target",
+      "resolved": "declaration-type-only/types/public.d.ts"
+    },
+    {
+      "id": "package-imports-types-condition",
+      "resolved": "resolver-package-maps/types/internal.d.mts"
+    },
+    {
+      "id": "path-alias",
+      "resolved": "ts-path-alias/src/message.ts"
+    },
+    {
+      "id": "self-reference-types-condition",
+      "resolved": "resolver-package-maps/types/feature.d.mts"
+    },
+    {
+      "id": "unicode-extension-substitution",
+      "resolved": "resolver-path-identity/src/café.ts"
+    },
+    {
+      "id": "unexported-self-subpath",
+      "resolved": null
+    }
+  ]
+}

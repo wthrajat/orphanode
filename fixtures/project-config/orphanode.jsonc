@@ -1,0 +1,20 @@
+{
+  "entry": ["src/index.js"],
+  "ignore": [
+    {
+      "pattern": "src/ignored.js",
+      "reason": "generated test input"
+    }
+  ],
+  "retain": [
+    {
+      "pattern": "src/retained.js",
+      "issues": ["files"],
+      "reason": "loaded by an external fixture host"
+    }
+  ],
+  "confidence": {
+    "report": "high",
+    "fail": "medium"
+  }
+}

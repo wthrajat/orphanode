@@ -1,0 +1,41 @@
+[package]
+name = "orphanode-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Accuracy-first reachability analysis for JavaScript and TypeScript"
+license.workspace = true
+readme = "README.md"
+homepage.workspace = true
+documentation = "https://docs.rs/orphanode-core"
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+exclude = ["tests/**"]
+
+[dependencies]
+ignore.workspace = true
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_ast_visit.workspace = true
+oxc_diagnostics.workspace = true
+oxc_ecmascript.workspace = true
+oxc_parser.workspace = true
+oxc_resolver.workspace = true
+oxc_semantic.workspace = true
+oxc_span.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion = "=0.8.2"
+
+[[bench]]
+name = "hot_paths"
+harness = false
+
+[lints]
+workspace = true

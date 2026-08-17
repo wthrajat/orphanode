@@ -1,0 +1,7 @@
+{
+  "entry": "src/index.js",
+  "files": [
+    "src/index.js",
+    "src/unused.js"
+  ]
+}

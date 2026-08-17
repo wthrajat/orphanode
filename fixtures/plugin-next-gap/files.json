@@ -1,0 +1,7 @@
+{
+  "entry": "app/[slug]/page.tsx",
+  "files": [
+    "app/[slug]/page.tsx",
+    "lib/unused.ts"
+  ]
+}

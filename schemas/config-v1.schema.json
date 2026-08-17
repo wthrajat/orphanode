@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orphanode.dev/schema/config-v1.json",
+  "title": "OrphaNode configuration v1",
+  "description": "Static configuration accepted in orphanode.jsonc or under package.json's orphanode key.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": ["string", "null"],
+      "description": "Optional editor schema hint; it is not a runtime schema-version field."
+    },
+    "mode": { "$ref": "#/$defs/optionalAnalysisMode" },
+    "world": { "$ref": "#/$defs/optionalWorldMode" },
+    "targets": { "$ref": "#/$defs/targets" },
+    "plugins": { "$ref": "#/$defs/optionalPlugins" },
+    "entry": { "$ref": "#/$defs/optionalEntries" },
+    "retain": { "$ref": "#/$defs/optionalRetainRules" },
+    "ignore": { "$ref": "#/$defs/optionalIgnoreRules" },
+    "confidence": { "$ref": "#/$defs/optionalConfidence" },
+    "workspaces": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/workspacePath" },
+      "additionalProperties": { "$ref": "#/$defs/configurationOverride" }
+    }
+  },
+  "$defs": {
+    "optionalAnalysisMode": {
+      "enum": ["fast", "balanced", "deep", null]
+    },
+    "optionalWorldMode": {
+      "enum": ["open", "closed", null]
+    },
+    "confidenceLevel": {
+      "enum": ["low", "medium", "high", null]
+    },
+    "workspacePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*:)(?!.*\\\\)(?!.*(?:^|/)\\.{2}(?:/|$)).+$",
+      "description": "Non-empty workspace-relative path without parent traversal."
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "extends": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "propertyNames": {
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/target" }
+    },
+    "optionalPlugins": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "optionalEntries": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/workspacePath" }
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "retainRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pattern", "reason"],
+      "properties": {
+        "pattern": { "type": "string", "minLength": 1 },
+        "issues": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "files",
+              "exports",
+              "declarations",
+              "members",
+              "dependencies",
+              "workspaces"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "ignoreRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pattern", "reason"],
+      "properties": {
+        "pattern": { "type": "string", "minLength": 1 },
+        "reason": { "$ref": "#/$defs/reason" }
+      }
+    },
+    "optionalRetainRules": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/retainRule" }
+    },
+    "optionalIgnoreRules": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/ignoreRule" }
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "report": { "$ref": "#/$defs/confidenceLevel" },
+        "fail": { "$ref": "#/$defs/confidenceLevel" }
+      }
+    },
+    "optionalConfidence": {
+      "anyOf": [
+        { "$ref": "#/$defs/confidence" },
+        { "type": "null" }
+      ]
+    },
+    "configurationOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "$ref": "#/$defs/optionalAnalysisMode" },
+        "world": { "$ref": "#/$defs/optionalWorldMode" },
+        "targets": { "$ref": "#/$defs/targets" },
+        "plugins": { "$ref": "#/$defs/optionalPlugins" },
+        "entry": { "$ref": "#/$defs/optionalEntries" },
+        "retain": { "$ref": "#/$defs/optionalRetainRules" },
+        "ignore": { "$ref": "#/$defs/optionalIgnoreRules" },
+        "confidence": { "$ref": "#/$defs/optionalConfidence" }
+      }
+    }
+  }
+}

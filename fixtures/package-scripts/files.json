@@ -1,0 +1,15 @@
+{
+  "entries": [
+    "scripts/preflight.mjs",
+    "scripts/register.mjs",
+    "src/server.mjs",
+    "tests/server.test.mjs"
+  ],
+  "files": [
+    "scripts/preflight.mjs",
+    "scripts/register.mjs",
+    "src/server.mjs",
+    "src/unused.mjs",
+    "tests/server.test.mjs"
+  ]
+}

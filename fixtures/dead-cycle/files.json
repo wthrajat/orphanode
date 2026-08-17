@@ -1,0 +1,8 @@
+{
+  "entry": "src/index.js",
+  "files": [
+    "src/dead-a.js",
+    "src/dead-b.js",
+    "src/index.js"
+  ]
+}

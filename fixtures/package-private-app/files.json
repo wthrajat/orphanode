@@ -1,0 +1,8 @@
+{
+  "entry": "src/index.ts",
+  "files": [
+    "src/index.ts",
+    "src/message.ts",
+    "src/unused.ts"
+  ]
+}

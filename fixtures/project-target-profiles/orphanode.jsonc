@@ -1,0 +1,13 @@
+{
+  "entry": ["src/index.js"],
+  "targets": {
+    "client": {
+      "extends": "browser",
+      "conditions": ["fixture-client"]
+    },
+    "server": {
+      "extends": "node",
+      "conditions": ["fixture-server"]
+    }
+  }
+}

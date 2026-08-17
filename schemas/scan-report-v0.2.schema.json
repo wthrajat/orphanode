@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orphanode.dev/schema/report-v0.2.json",
+  "title": "OrphaNode scan report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "entries",
+    "summary",
+    "files",
+    "findings",
+    "diagnostics"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "0.2" },
+    "status": { "enum": ["complete", "incomplete"] },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/path" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "summary": { "$ref": "#/$defs/summary" },
+    "files": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/file" }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "retentions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/retention" }
+    },
+    "project": { "$ref": "#/$defs/project" },
+    "cache": { "$ref": "#/$defs/cache" },
+    "diagnostics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/diagnostic" }
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Project-relative path using forward slashes."
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files",
+        "reachableFiles",
+        "unreachableFiles",
+        "incompleteFiles",
+        "diagnostics"
+      ],
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 },
+        "reachableFiles": { "type": "integer", "minimum": 0 },
+        "unreachableFiles": { "type": "integer", "minimum": 0 },
+        "incompleteFiles": { "type": "integer", "minimum": 0 },
+        "diagnostics": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "status",
+        "targetStatuses",
+        "sourceKind",
+        "moduleKind",
+        "byteLen",
+        "lineCount",
+        "contentDigest",
+        "imports",
+        "exports"
+      ],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "status": { "enum": ["reachable", "unreachable", "incomplete"] },
+        "targetStatuses": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": ["reachable", "unreachable", "incomplete"]
+          },
+          "minProperties": 1
+        },
+        "sourceKind": {
+          "enum": ["java_script", "jsx", "type_script", "tsx"]
+        },
+        "moduleKind": { "enum": ["esm", "common_js"] },
+        "byteLen": { "type": "integer", "minimum": 0 },
+        "lineCount": { "type": "integer", "minimum": 0 },
+        "contentDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "imports": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/import" }
+        },
+        "exports": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/export" }
+        }
+      }
+    },
+    "import": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "specifier",
+        "kind",
+        "resolutionMode",
+        "activation",
+        "typeOnly",
+        "status",
+        "targetProfiles",
+        "span"
+      ],
+      "properties": {
+        "specifier": { "type": "string" },
+        "kind": {
+          "enum": [
+            "static",
+            "side_effect",
+            "re_export",
+            "dynamic",
+            "common_js_require",
+            "common_js_resolve",
+            "plugin"
+          ]
+        },
+        "resolutionMode": { "enum": ["esm", "common_js"] },
+        "activation": { "enum": ["module", "deferred"] },
+        "typeOnly": { "type": "boolean" },
+        "status": {
+          "enum": ["resolved", "external", "unresolved", "unsupported", "deferred"]
+        },
+        "targetProfiles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "target": { "$ref": "#/$defs/path" },
+        "span": { "$ref": "#/$defs/span" }
+      }
+    },
+    "export": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "typeOnly", "span"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "enum": ["named", "default", "star"] },
+        "typeOnly": { "type": "boolean" },
+        "span": { "$ref": "#/$defs/span" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "issueId",
+        "issueType",
+        "workspace",
+        "targetProfiles",
+        "paths",
+        "confidence",
+        "summary",
+        "evidence",
+        "blockers",
+        "suggestedActions",
+        "fixEligibility"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "0.2" },
+        "issueId": {
+          "enum": [
+            "ORP1001",
+            "ORP1002",
+            "ORP1003",
+            "ORP1004",
+            "ORP2001",
+            "ORP2002",
+            "ORP3001"
+          ]
+        },
+        "issueType": {
+          "enum": [
+            "unusedFiles",
+            "unusedExport",
+            "unusedDeclaration",
+            "unusedMember",
+            "unusedDependency",
+            "unlistedDependency",
+            "misplacedDependency",
+            "unusedWorkspace"
+          ]
+        },
+        "workspace": { "type": "string", "minLength": 1 },
+        "targetProfiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "paths": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/path" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "span": { "$ref": "#/$defs/span" },
+        "symbol": { "type": "string", "minLength": 1 },
+        "dependency": { "type": "string", "minLength": 1 },
+        "confidence": { "enum": ["high", "medium", "low", "incomplete"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "blockers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "suggestedActions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "fixEligibility": {
+          "enum": ["not_available", "preview_only", "eligible", "blocked"]
+        }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "itemType",
+        "workspace",
+        "targetProfiles",
+        "summary",
+        "evidence"
+      ],
+      "properties": {
+        "item": { "type": "string", "minLength": 1 },
+        "itemType": {
+          "enum": [
+            "file",
+            "export",
+            "declaration",
+            "member",
+            "dependency",
+            "workspace",
+            "item"
+          ]
+        },
+        "workspace": { "type": "string", "minLength": 1 },
+        "targetProfiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "summary": { "type": "string", "minLength": 1 },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "workspaces",
+        "worlds",
+        "targetProfiles",
+        "failureThresholds",
+        "detectedPlugins",
+        "configurationSources"
+      ],
+      "properties": {
+        "mode": { "enum": ["fast", "balanced", "deep", "mixed"] },
+        "workspaces": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "worlds": {
+          "type": "object",
+          "additionalProperties": { "enum": ["open", "closed"] }
+        },
+        "targetProfiles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "failureThresholds": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": ["high", "medium", "low", "incomplete"]
+          }
+        },
+        "detectedPlugins": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "configurationSources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/path" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "hits", "misses", "generationWritten"],
+      "properties": {
+        "status": { "type": "string", "minLength": 1 },
+        "hits": { "type": "integer", "minimum": 0 },
+        "misses": { "type": "integer", "minimum": 0 },
+        "generationWritten": { "type": "boolean" }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "path",
+        "severity",
+        "message",
+        "blocksReachability"
+      ],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/path" },
+        "severity": { "enum": ["error", "warning"] },
+        "span": { "$ref": "#/$defs/span" },
+        "message": { "type": "string", "minLength": 1 },
+        "blocksReachability": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "entries": [
+    "src/index.mjs",
+    "src/types.ts"
+  ],
+  "files": [
+    "src/ExactCase.mjs",
+    "src/café.mjs",
+    "src/café.ts",
+    "src/index.mjs",
+    "src/real-target.mjs",
+    "src/types.ts"
+  ]
+}

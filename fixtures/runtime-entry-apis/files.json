@@ -1,0 +1,10 @@
+{
+  "entry": "src/index.mts",
+  "files": [
+    "src/child.cjs",
+    "src/index.mts",
+    "src/loader.mjs",
+    "src/unused.ts",
+    "src/worker.mts"
+  ]
+}

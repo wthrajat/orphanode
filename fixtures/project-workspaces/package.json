@@ -1,0 +1,10 @@
+{
+  "name": "fixture-project-workspaces",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "start": "node ./packages/closed/src/index.js"
+  }
+}

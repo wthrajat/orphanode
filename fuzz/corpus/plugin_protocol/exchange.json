@@ -1,0 +1,20 @@
+[
+  {
+    "protocolVersion": 1,
+    "requestId": "request-1",
+    "pluginId": "fuzz-plugin",
+    "pluginVersion": "1.0.0",
+    "workspaceRoot": ".",
+    "targetProfile": "node",
+    "configFiles": [],
+    "capabilities": ["diagnostics"]
+  },
+  {
+    "protocolVersion": 1,
+    "requestId": "request-1",
+    "pluginId": "fuzz-plugin",
+    "pluginVersion": "1.0.0",
+    "status": "complete",
+    "contributions": {}
+  }
+]

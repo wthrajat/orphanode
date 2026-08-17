@@ -1,0 +1,8 @@
+{
+  "entry": "src/index.ts",
+  "files": [
+    "src/api.ts",
+    "src/index.ts",
+    "src/internal.ts"
+  ]
+}

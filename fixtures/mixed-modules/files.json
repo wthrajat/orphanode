@@ -1,0 +1,10 @@
+{
+  "entry": "src/index.mjs",
+  "files": [
+    "src/bridge.cjs",
+    "src/esm-helper.js",
+    "src/index.mjs",
+    "src/legacy.cjs",
+    "src/unused.cjs"
+  ]
+}

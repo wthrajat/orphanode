@@ -1,0 +1,13 @@
+{
+  "name": "fuzz-package",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./src/index.js",
+      "require": "./src/index.cjs"
+    }
+  },
+  "bin": { "fuzz-package": "./bin/cli.js" },
+  "workspaces": ["packages/*"]
+}

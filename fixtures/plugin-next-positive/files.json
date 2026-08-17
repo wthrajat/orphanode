@@ -1,0 +1,11 @@
+{
+  "entries": [
+    "app/layout.tsx",
+    "app/page.tsx"
+  ],
+  "files": [
+    "app/layout.tsx",
+    "app/page.tsx",
+    "lib/unused.ts"
+  ]
+}

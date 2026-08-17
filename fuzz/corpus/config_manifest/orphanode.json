@@ -1,0 +1,8 @@
+{
+  "mode": "balanced",
+  "world": "closed",
+  "entry": ["src/index.ts"],
+  "targets": {
+    "production": { "extends": "node", "conditions": ["production"] }
+  }
+}

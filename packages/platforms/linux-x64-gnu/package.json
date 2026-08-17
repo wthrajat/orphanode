@@ -1,0 +1,39 @@
+{
+  "name": "@orphanode/linux-x64-gnu",
+  "version": "0.1.0",
+  "description": "OrphaNode native binary for 64-bit GNU/Linux",
+  "license": "MIT OR Apache-2.0",
+  "author": "OrphaNode contributors",
+  "homepage": "https://github.com/wthrajat/orphanode",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wthrajat/orphanode.git",
+    "directory": "packages/platforms/linux-x64-gnu"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "preferUnplugged": true,
+  "files": [
+    "bin/orphanode",
+    "bin/orphanode.sha256",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "orphanode": {
+    "target": "x86_64-unknown-linux-gnu",
+    "binary": "bin/orphanode",
+    "checksum": "bin/orphanode.sha256"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

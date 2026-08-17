@@ -1,0 +1,37 @@
+{
+  "engine": "node",
+  "cases": [
+    {
+      "id": "case-preserving-relative-import",
+      "resolved": "resolver-path-identity/src/ExactCase.mjs"
+    },
+    {
+      "id": "package-imports-import-condition",
+      "resolved": "resolver-package-maps/src/internal-import.mjs"
+    },
+    {
+      "id": "package-imports-require-condition",
+      "resolved": "resolver-package-maps/src/internal-require.cjs"
+    },
+    {
+      "id": "self-reference-import-condition",
+      "resolved": "resolver-package-maps/src/feature-import.mjs"
+    },
+    {
+      "id": "self-reference-require-condition",
+      "resolved": "resolver-package-maps/src/feature-require.cjs"
+    },
+    {
+      "id": "symlink-default-realpath",
+      "resolved": "resolver-path-identity/src/real-target.mjs"
+    },
+    {
+      "id": "unicode-relative-import",
+      "resolved": "resolver-path-identity/src/café.mjs"
+    },
+    {
+      "id": "unexported-self-subpath",
+      "error": "ERR_PACKAGE_PATH_NOT_EXPORTED"
+    }
+  ]
+}

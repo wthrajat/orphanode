@@ -1,0 +1,15 @@
+{
+  "plugin": "next",
+  "scenario": "positive",
+  "expected": {
+    "coverage": "complete",
+    "detected": true,
+    "entries": [
+      "app/layout.tsx",
+      "app/page.tsx"
+    ],
+    "configDependencies": [
+      "@next/bundle-analyzer"
+    ]
+  }
+}

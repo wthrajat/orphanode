@@ -1,0 +1,22 @@
+{
+  "name": "fixture-resolver",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/consumer.mjs",
+    "./feature": {
+      "types": "./types/feature.d.mts",
+      "import": "./src/feature-import.mjs",
+      "require": "./src/feature-require.cjs",
+      "default": "./src/feature-default.js"
+    }
+  },
+  "imports": {
+    "#internal": {
+      "types": "./types/internal.d.mts",
+      "import": "./src/internal-import.mjs",
+      "require": "./src/internal-require.cjs",
+      "default": "./src/internal-default.js"
+    }
+  }
+}

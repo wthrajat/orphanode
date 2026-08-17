@@ -1,0 +1,12 @@
+{
+  "name": "@fixture/declaration-types",
+  "version": "1.0.0",
+  "type": "module",
+  "types": "./types/public.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/public.d.ts",
+      "import": "./src/index.ts"
+    }
+  }
+}

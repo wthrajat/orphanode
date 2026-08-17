@@ -1,0 +1,30 @@
+{
+  "name": "@orphanode/typescript-worker",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Optional TypeScript fact worker for OrphaNode deep analysis",
+  "bin": {
+    "orphanode-typescript-worker": "./src/worker.mjs"
+  },
+  "exports": {
+    "./worker": "./src/worker.mjs"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.18"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "license": "MIT OR Apache-2.0",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

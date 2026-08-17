@@ -1,0 +1,16 @@
+/target/
+/.orphanode/
+/codedb.snapshot
+/fuzz/artifacts/
+/fuzz/coverage/
+/fuzz/target/
+*.profraw
+
+# Local planning and engineering evidence. Public technical guidance lives in
+# DEVELOPMENT.md; these working documents are intentionally not published.
+/docs/**/*.md
+/audits/README.md
+/benchmarks/README.md
+/fixtures/README.md
+/fuzz/README.md
+/.github/RELEASING.md

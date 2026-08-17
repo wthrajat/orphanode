@@ -1,0 +1,18 @@
+{
+  "entries": [
+    "src/consumer.cjs",
+    "src/consumer.mjs"
+  ],
+  "files": [
+    "src/consumer.cjs",
+    "src/consumer.mjs",
+    "src/feature-default.js",
+    "src/feature-import.mjs",
+    "src/feature-require.cjs",
+    "src/internal-default.js",
+    "src/internal-import.mjs",
+    "src/internal-require.cjs",
+    "types/feature.d.mts",
+    "types/internal.d.mts"
+  ]
+}

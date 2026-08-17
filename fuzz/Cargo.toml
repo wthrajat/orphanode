@@ -1,0 +1,51 @@
+[package]
+name = "orphanode-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+orphanode-core = { path = "../crates/orphanode-core" }
+serde_json = "1.0.151"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "parser_facts"
+path = "fuzz_targets/parser_facts.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_manifest"
+path = "fuzz_targets/config_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "resolver_specifier"
+path = "fuzz_targets/resolver_specifier.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "plugin_protocol"
+path = "fuzz_targets/plugin_protocol.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cache_corruption"
+path = "fuzz_targets/cache_corruption.rs"
+test = false
+doc = false
+bench = false

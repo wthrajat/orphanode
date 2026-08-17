@@ -1,0 +1,16 @@
+{
+  "entries": [
+    "src/index.js",
+    "src/types.ts"
+  ],
+  "files": [
+    "src/component.tsx",
+    "src/index.js",
+    "src/legacy.cjs",
+    "src/legacy.cts",
+    "src/module.mjs",
+    "src/module.mts",
+    "src/types.ts",
+    "src/view.jsx"
+  ]
+}

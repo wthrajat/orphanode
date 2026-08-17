@@ -1,0 +1,2 @@
+2interface Item { readonly name: string }
+export const read = (item: Item): string => item.name;

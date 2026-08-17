@@ -1,0 +1,10 @@
+{
+  "name": "fixture-package-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prestart": "node ./scripts/preflight.mjs",
+    "start": "node --import ./scripts/register.mjs ./src/server.mjs",
+    "test": "node --test ./tests/server.test.mjs"
+  }
+}

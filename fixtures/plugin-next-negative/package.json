@@ -1,0 +1,7 @@
+{
+  "name": "fixture-next-negative",
+  "private": true,
+  "dependencies": {
+    "react": "19.2.0"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "entry": "src/index.cjs",
+  "files": [
+    "src/index.cjs",
+    "src/message.cjs",
+    "src/unused.cjs"
+  ]
+}

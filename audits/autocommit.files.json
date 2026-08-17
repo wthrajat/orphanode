@@ -1,0 +1,23 @@
+{
+  "entries": [
+    "eslint.config.mjs",
+    "src/cli/index.ts"
+  ],
+  "files": [
+    "eslint.config.mjs",
+    "src/cli/flags.ts",
+    "src/cli/index.ts",
+    "src/cli/setup.ts",
+    "src/config/index.ts",
+    "src/lib/classifier.ts",
+    "src/lib/diff.ts",
+    "src/lib/gemini.ts",
+    "src/lib/generator.ts",
+    "src/lib/git.ts",
+    "src/lib/openai.ts",
+    "src/lib/prompts.ts",
+    "src/types/index.ts",
+    "src/utils/index.ts",
+    "src/utils/ui.ts"
+  ]
+}

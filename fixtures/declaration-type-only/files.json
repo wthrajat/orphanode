@@ -1,0 +1,12 @@
+{
+  "entries": [
+    "src/index.ts",
+    "types/public.d.ts"
+  ],
+  "files": [
+    "src/contracts.ts",
+    "src/index.ts",
+    "src/unused-type.ts",
+    "types/public.d.ts"
+  ]
+}

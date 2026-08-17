@@ -1,0 +1,6 @@
+{
+  // JSONC comments and trailing commas are supported.
+  "mode": "balanced",
+  "world": "closed",
+  "entry": ["src/index.ts",],
+}

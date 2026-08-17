@@ -1,0 +1,69 @@
+name: Bug report
+description: Report incorrect behavior or an unexpected failure.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve OrphaNode. Please remove private source code from examples and logs.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what impact did it have?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: OrphaNode version
+      placeholder: "0.1.0 or commit SHA"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, architecture, and Rust version if building from source.
+      placeholder: "Ubuntu 24.04, x86_64, rustc 1.95.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the command, minimal file universe or fixture, and any relevant configuration.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include complete diagnostics or JSON output after removing sensitive data.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I removed credentials, private source code, and other sensitive data.
+          required: true
+

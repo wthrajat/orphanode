@@ -1,0 +1,14 @@
+{
+  "name": "orphanode-reference-harness",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node ./check-references.mjs",
+    "check:node": "node ./node-resolution.mjs --check",
+    "check:typescript": "node ./typescript-resolution.mjs --check",
+    "test": "node ./check-references.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

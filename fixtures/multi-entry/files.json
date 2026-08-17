@@ -1,0 +1,11 @@
+{
+  "entries": [
+    "src/cli.js",
+    "src/server.js"
+  ],
+  "files": [
+    "src/cli.js",
+    "src/server.js",
+    "src/unused.js"
+  ]
+}

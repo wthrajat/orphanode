@@ -1,0 +1,16 @@
+{
+  "plugin": "next",
+  "scenario": "coverage-gap",
+  "expectedWithPlugin": {
+    "coverage": "incomplete",
+    "entries": [
+      "app/[slug]/page.tsx"
+    ],
+    "gap": "dynamic Next.js configuration cannot be expanded statically"
+  },
+  "expectedWithoutPlugin": {
+    "coverage": "incomplete",
+    "entries": [],
+    "gap": "Next.js convention roots are unmodeled without the plugin"
+  }
+}
