@@ -149,11 +149,8 @@ pub struct Finding {
     pub workspace: String,
     pub target_profiles: Vec<String>,
     pub paths: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub span: Option<SourceSpan>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency: Option<String>,
     pub confidence: Confidence,
     pub summary: String,

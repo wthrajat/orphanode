@@ -1,6 +1,9 @@
 use oxc_ast::{
     AstKind,
-    ast::{BinaryOperator, CallExpression, Expression, NewExpression, TemplateLiteral},
+    ast::{
+        BinaryOperator, CallExpression, Expression, MemberExpression, NewExpression,
+        TemplateLiteral,
+    },
 };
 use oxc_semantic::{IsGlobalReference, Semantic, SymbolFlags, SymbolId};
 
@@ -117,6 +120,7 @@ pub(crate) struct StaticStringEvaluator<'s, 'a> {
 }
 
 impl<'s, 'a> StaticStringEvaluator<'s, 'a> {
+    #[cfg(test)]
     pub(crate) fn new(semantic: &'s Semantic<'a>) -> Self {
         Self::with_limits(semantic, AnalysisLimits::default())
     }
@@ -214,7 +218,12 @@ impl<'s, 'a> StaticStringEvaluator<'s, 'a> {
                 let AstKind::VariableDeclarator(declarator) = declaration.kind() else {
                     return Ok(None);
                 };
-                if !declarator.kind.is_const() || !declarator.id.is_binding_identifier() {
+                let AstKind::VariableDeclaration(variable_declaration) =
+                    self.semantic.nodes().parent_kind(declaration.id())
+                else {
+                    return Ok(None);
+                };
+                if !variable_declaration.kind.is_const() || !declarator.id.is_binding_identifier() {
                     return Ok(None);
                 }
                 let Some(binding) = declarator.id.get_binding_identifier() else {
@@ -334,7 +343,12 @@ impl<'s, 'a> StaticStringEvaluator<'s, 'a> {
                 let AstKind::VariableDeclarator(declarator) = declaration.kind() else {
                     return Ok(None);
                 };
-                if !declarator.kind.is_const() || !declarator.id.is_binding_identifier() {
+                let AstKind::VariableDeclaration(variable_declaration) =
+                    self.semantic.nodes().parent_kind(declaration.id())
+                else {
+                    return Ok(None);
+                };
+                if !variable_declaration.kind.is_const() || !declarator.id.is_binding_identifier() {
                     return Ok(None);
                 }
                 let Some(binding) = declarator.id.get_binding_identifier() else {
@@ -426,7 +440,7 @@ pub(crate) fn dynamic_call_candidate<'a>(
         Expression::Identifier(identifier) => identifier.name.as_str(),
         callee => callee
             .as_member_expression()
-            .and_then(|member| member.static_property_name())?,
+            .and_then(MemberExpression::static_property_name)?,
     };
     let form = match callee_name {
         "fork" => DynamicLoadForm::ChildProcessFork,
@@ -447,7 +461,7 @@ pub(crate) fn dynamic_new_target<'a>(
         Expression::Identifier(identifier) => Some(identifier.name.as_str()),
         callee => callee
             .as_member_expression()
-            .and_then(|member| member.static_property_name()),
+            .and_then(MemberExpression::static_property_name),
     };
     if constructor_name == Some("Worker") {
         return first_new_argument(expression).map(|target| (DynamicLoadForm::Worker, target));
@@ -497,7 +511,7 @@ mod tests {
 
     use oxc_allocator::Allocator;
     use oxc_ast::ast::{CallExpression, ImportExpression, NewExpression};
-    use oxc_ast_visit::{Visit, visit};
+    use oxc_ast_visit::{Visit, walk};
     use oxc_parser::Parser;
     use oxc_semantic::{Semantic, SemanticBuilder};
     use oxc_span::SourceType;
@@ -546,8 +560,10 @@ mod tests {
 
     #[test]
     fn reports_values_over_the_configured_bound() {
-        let mut limits = AnalysisLimits::default();
-        limits.max_static_string_bytes = 8;
+        let limits = AnalysisLimits {
+            max_static_string_bytes: 8,
+            ..AnalysisLimits::default()
+        };
         let results = evaluated_imports("import('./longer-than-eight.js');", limits);
 
         let error = results
@@ -563,8 +579,10 @@ mod tests {
 
     #[test]
     fn reports_constant_evaluation_depth_exhaustion() {
-        let mut limits = AnalysisLimits::default();
-        limits.max_constant_evaluation_depth = 1;
+        let limits = AnalysisLimits {
+            max_constant_evaluation_depth: 1,
+            ..AnalysisLimits::default()
+        };
         let results = evaluated_imports("const target = './worker.js'; import(target);", limits);
 
         let error = results
@@ -696,7 +714,7 @@ mod tests {
         fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
             self.values
                 .push(self.evaluator.evaluate(&expression.source));
-            visit::walk_import_expression(self, expression);
+            walk::walk_import_expression(self, expression);
         }
     }
 
@@ -709,7 +727,7 @@ mod tests {
         fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
             self.prefixes
                 .push(self.evaluator.leading_static_prefix(&expression.source));
-            visit::walk_import_expression(self, expression);
+            walk::walk_import_expression(self, expression);
         }
     }
 
@@ -729,7 +747,7 @@ mod tests {
             {
                 self.candidates.push((form, value));
             }
-            visit::walk_call_expression(self, expression);
+            walk::walk_call_expression(self, expression);
         }
 
         fn visit_new_expression(&mut self, expression: &NewExpression<'a>) {
@@ -741,7 +759,7 @@ mod tests {
             {
                 self.candidates.push((form, value));
             }
-            visit::walk_new_expression(self, expression);
+            walk::walk_new_expression(self, expression);
         }
     }
 }

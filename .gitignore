@@ -1,5 +1,5 @@
 /target/
-/.orphanode/
+.orphanode/
 /codedb.snapshot
 /fuzz/artifacts/
 /fuzz/coverage/

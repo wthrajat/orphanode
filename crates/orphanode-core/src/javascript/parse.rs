@@ -4,12 +4,13 @@ use oxc_allocator::Allocator;
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
     AccessorProperty, Argument, AssignmentExpression, AssignmentOperator, CallExpression, Class,
-    ClassElement, ExportAllDeclaration, ExportDefaultDeclaration, ExportDefaultDeclarationKind,
-    ExportNamedDeclaration, Expression, ImportDeclaration, ImportDeclarationSpecifier,
-    ImportExpression, MemberExpression, MethodDefinitionKind, ModuleExportName, NewExpression,
-    PropertyDefinition, TSAccessibility, VariableDeclarator, WithStatement,
+    ClassElement, ExportAllDeclaration, ExportDeclaration, ExportDefaultDeclaration,
+    ExportDefaultDeclarationKind, ExportFromDeclaration, ExportNamedDeclaration, Expression,
+    ImportDeclaration, ImportDeclarationSpecifier, ImportExpression, MemberExpression,
+    MethodDefinitionKind, ModuleExportName, NewExpression, PropertyDefinition, TSAccessibility,
+    VariableDeclarator, WithStatement,
 };
-use oxc_ast_visit::{Visit, visit};
+use oxc_ast_visit::{Visit, walk as visit};
 use oxc_ecmascript::BoundNames;
 use oxc_parser::Parser;
 use oxc_semantic::{IsGlobalReference, Semantic, SemanticBuilder};
@@ -54,25 +55,15 @@ pub(crate) fn parse_file_with_limits(
     let source_type = match SourceType::from_path(physical_path) {
         Ok(source_type) => source_type,
         Err(error) => {
-            return FileFacts {
-                path: display_path.to_owned(),
+            let diagnostic = unsupported_source_type_diagnostic(display_path, error.to_string());
+            return failed_file_facts(
+                display_path,
                 source_kind,
                 module_kind,
                 byte_len,
                 line_count,
-                imports: Vec::new(),
-                exports: Vec::new(),
-                symbol_facts: SymbolFileFacts::default(),
-                member_facts: Vec::new(),
-                diagnostics: vec![AnalysisDiagnostic {
-                    code: "unsupported_source_type".to_owned(),
-                    path: display_path.to_owned(),
-                    severity: DiagnosticSeverity::Error,
-                    span: None,
-                    message: error.to_string(),
-                    blocks_reachability: true,
-                }],
-            };
+                vec![diagnostic],
+            );
         }
     };
 
@@ -96,19 +87,14 @@ pub(crate) fn parse_file_with_limits(
     }
 
     if !diagnostics.is_empty() {
-        sort_diagnostics(&mut diagnostics);
-        return FileFacts {
-            path: display_path.to_owned(),
+        return failed_file_facts(
+            display_path,
             source_kind,
             module_kind,
             byte_len,
             line_count,
-            imports: Vec::new(),
-            exports: Vec::new(),
-            symbol_facts: SymbolFileFacts::default(),
-            member_facts: Vec::new(),
             diagnostics,
-        };
+        );
     }
 
     let semantic_return = SemanticBuilder::new_compiler()
@@ -122,19 +108,14 @@ pub(crate) fn parse_file_with_limits(
     );
 
     if !diagnostics.is_empty() {
-        sort_diagnostics(&mut diagnostics);
-        return FileFacts {
-            path: display_path.to_owned(),
+        return failed_file_facts(
+            display_path,
             source_kind,
             module_kind,
             byte_len,
             line_count,
-            imports: Vec::new(),
-            exports: Vec::new(),
-            symbol_facts: SymbolFileFacts::default(),
-            member_facts: Vec::new(),
             diagnostics,
-        };
+        );
     }
 
     let mut collector = FactCollector::new(
@@ -169,6 +150,40 @@ pub(crate) fn parse_file_with_limits(
         symbol_facts: collector.symbol_facts,
         member_facts: collector.member_facts,
         diagnostics: collector.diagnostics,
+    }
+}
+
+fn unsupported_source_type_diagnostic(path: &str, message: String) -> AnalysisDiagnostic {
+    AnalysisDiagnostic {
+        code: "unsupported_source_type".to_owned(),
+        path: path.to_owned(),
+        severity: DiagnosticSeverity::Error,
+        span: None,
+        message,
+        blocks_reachability: true,
+    }
+}
+
+fn failed_file_facts(
+    display_path: &str,
+    source_kind: SourceKind,
+    module_kind: ModuleKind,
+    byte_len: u64,
+    line_count: u32,
+    mut diagnostics: Vec<AnalysisDiagnostic>,
+) -> FileFacts {
+    sort_diagnostics(&mut diagnostics);
+    FileFacts {
+        path: display_path.to_owned(),
+        source_kind,
+        module_kind,
+        byte_len,
+        line_count,
+        imports: Vec::new(),
+        exports: Vec::new(),
+        symbol_facts: SymbolFileFacts::default(),
+        member_facts: Vec::new(),
+        diagnostics,
     }
 }
 
@@ -312,11 +327,6 @@ impl<'s, 'a> FactCollector<'s, 'a> {
                         format!("the `{}` directory", directory.display())
                     }
                     UnknownScope::WorkspaceFileGraph => "the workspace file graph".to_owned(),
-                    UnknownScope::ObjectMembers(_)
-                    | UnknownScope::ClassSurface(_)
-                    | UnknownScope::LexicalScopeAndAncestors(_) => {
-                        "the containing analysis scope".to_owned()
-                    }
                 };
                 self.add_dynamic_diagnostic(
                     form.diagnostic_code(),
@@ -397,7 +407,7 @@ impl<'s, 'a> FactCollector<'s, 'a> {
         )
     }
 
-    fn is_require_syntax(&self, expression: &Expression<'a>) -> bool {
+    fn is_require_syntax(expression: &Expression<'a>) -> bool {
         if matches!(
             expression,
             Expression::Identifier(identifier) if identifier.name == "require"
@@ -532,6 +542,7 @@ impl<'s, 'a> FactCollector<'s, 'a> {
         reference.symbol_id().map(lower_symbol_id)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn finish_symbol_facts(&mut self, source_text: &str) {
         let scoping = self.semantic.scoping();
         let nodes = self.semantic.nodes();
@@ -791,8 +802,7 @@ impl<'s, 'a> FactCollector<'s, 'a> {
             || format!("<anonymous@{}>", class.span.start),
             |identifier| identifier.name.to_string(),
         );
-        let participates_in_inheritance =
-            class.super_class.is_some() || !class.implements.is_empty();
+        let participates_in_inheritance = class.heritage.is_some() || !class.implements.is_empty();
         let implements_external_contract = !class.implements.is_empty();
         let class_decorated = !class.decorators.is_empty();
 
@@ -971,21 +981,6 @@ impl<'a> Visit<'a> for FactCollector<'_, 'a> {
 
     fn visit_export_named_declaration(&mut self, declaration: &ExportNamedDeclaration<'a>) {
         let declaration_is_type = declaration.export_kind.is_type();
-        if let Some(source) = &declaration.source {
-            let all_specifiers_are_type_only = !declaration.specifiers.is_empty()
-                && declaration
-                    .specifiers
-                    .iter()
-                    .all(|specifier| specifier.export_kind.is_type());
-            self.add_module_load(
-                source.value.as_str(),
-                ImportKind::ReExport,
-                ResolutionMode::Esm,
-                declaration_is_type || all_specifiers_are_type_only,
-                declaration.span,
-                false,
-            );
-        }
 
         for specifier in &declaration.specifiers {
             let type_only = declaration_is_type || specifier.export_kind.is_type();
@@ -995,53 +990,79 @@ impl<'a> Visit<'a> for FactCollector<'_, 'a> {
                 type_only,
                 span: specifier.span.into(),
             });
-            let source = declaration
-                .source
-                .as_ref()
-                .map(|source| source.value.to_string());
             self.symbol_facts.exports.push(ExportBindingFact {
                 exported: module_export_name(&specifier.exported),
-                imported: source
-                    .as_ref()
-                    .map(|_| module_export_name(&specifier.local)),
-                local: if source.is_none() {
-                    self.resolved_export_symbol(&specifier.local)
-                } else {
-                    None
-                },
-                kind: if source.is_some() {
-                    ExportBindingKind::ReExport
-                } else {
-                    ExportBindingKind::Local
-                },
-                source,
+                imported: None,
+                local: self.resolved_export_symbol(&specifier.local),
+                kind: ExportBindingKind::Local,
+                source: None,
                 type_only,
                 span: specifier.span.into(),
             });
         }
 
-        if let Some(exported_declaration) = &declaration.declaration {
-            exported_declaration.bound_names(&mut |identifier| {
-                let type_only = declaration_is_type || exported_declaration.is_type();
-                self.exports.push(ExportFact {
-                    name: identifier.name.to_string(),
-                    kind: ExportKind::Named,
-                    type_only,
-                    span: identifier.span.into(),
-                });
-                self.symbol_facts.exports.push(ExportBindingFact {
-                    exported: identifier.name.to_string(),
-                    source: None,
-                    imported: None,
-                    local: Some(lower_symbol_id(identifier.symbol_id())),
-                    kind: ExportBindingKind::Local,
-                    type_only,
-                    span: identifier.span.into(),
-                });
+        visit::walk_export_named_declaration(self, declaration);
+    }
+
+    fn visit_export_from_declaration(&mut self, declaration: &ExportFromDeclaration<'a>) {
+        let declaration_is_type = declaration.export_kind.is_type();
+        let all_specifiers_are_type_only = !declaration.specifiers.is_empty()
+            && declaration
+                .specifiers
+                .iter()
+                .all(|specifier| specifier.export_kind.is_type());
+        self.add_module_load(
+            declaration.source.value.as_str(),
+            ImportKind::ReExport,
+            ResolutionMode::Esm,
+            declaration_is_type || all_specifiers_are_type_only,
+            declaration.span,
+            false,
+        );
+
+        for specifier in &declaration.specifiers {
+            let type_only = declaration_is_type || specifier.export_kind.is_type();
+            self.exports.push(ExportFact {
+                name: module_export_name(&specifier.exported),
+                kind: ExportKind::Named,
+                type_only,
+                span: specifier.span.into(),
+            });
+            self.symbol_facts.exports.push(ExportBindingFact {
+                exported: module_export_name(&specifier.exported),
+                imported: Some(module_export_name(&specifier.local)),
+                local: None,
+                kind: ExportBindingKind::ReExport,
+                source: Some(declaration.source.value.to_string()),
+                type_only,
+                span: specifier.span.into(),
             });
         }
 
-        visit::walk_export_named_declaration(self, declaration);
+        visit::walk_export_from_declaration(self, declaration);
+    }
+
+    fn visit_export_declaration(&mut self, declaration: &ExportDeclaration<'a>) {
+        let type_only = declaration.export_kind().is_type();
+        declaration.declaration.bound_names(&mut |identifier| {
+            self.exports.push(ExportFact {
+                name: identifier.name.to_string(),
+                kind: ExportKind::Named,
+                type_only,
+                span: identifier.span.into(),
+            });
+            self.symbol_facts.exports.push(ExportBindingFact {
+                exported: identifier.name.to_string(),
+                source: None,
+                imported: None,
+                local: Some(lower_symbol_id(identifier.symbol_id())),
+                kind: ExportBindingKind::Local,
+                type_only,
+                span: identifier.span.into(),
+            });
+        });
+
+        visit::walk_export_declaration(self, declaration);
     }
 
     fn visit_export_default_declaration(&mut self, declaration: &ExportDefaultDeclaration<'a>) {
@@ -1164,6 +1185,7 @@ impl<'a> Visit<'a> for FactCollector<'_, 'a> {
     }
 
     fn visit_call_expression(&mut self, expression: &CallExpression<'a>) {
+        let expression = self.alloc(expression);
         if self.is_opaque_common_js_export_call(expression) {
             self.add_common_js_export_guard(
                 UnknownGuardKind::OpaqueCommonJsExports,
@@ -1172,7 +1194,7 @@ impl<'a> Visit<'a> for FactCollector<'_, 'a> {
                 "CommonJS export mutation cannot be linked to a complete static export set",
             );
         }
-        if self.dynamic_scope_depth > 0 && self.is_require_syntax(&expression.callee) {
+        if self.dynamic_scope_depth > 0 && Self::is_require_syntax(&expression.callee) {
             self.add_dynamic_diagnostic(
                 "unsupported_dynamic_scope_require",
                 "Cannot determine whether `require` is global inside a `with` statement",
@@ -1251,6 +1273,7 @@ impl<'a> Visit<'a> for FactCollector<'_, 'a> {
     }
 
     fn visit_new_expression(&mut self, expression: &NewExpression<'a>) {
+        let expression = self.alloc(expression);
         if let Some((form, target)) = dynamic_new_target(expression, self.semantic)
             && self.dynamic_form_is_authorized(form, &expression.callee)
         {
@@ -1586,12 +1609,10 @@ fn oxc_diagnostic(
     code: &str,
     diagnostic: &oxc_diagnostics::OxcDiagnostic,
 ) -> AnalysisDiagnostic {
-    let span = diagnostic.labels.as_ref().and_then(|labels| {
-        labels.first().map(|label| {
-            let start = u32::try_from(label.offset()).unwrap_or(u32::MAX);
-            let length = u32::try_from(label.len()).unwrap_or(u32::MAX - start);
-            SourceSpan::new(start, start.saturating_add(length))
-        })
+    let span = diagnostic.labels.first().map(|label| {
+        let start = label.offset();
+        let length = label.len();
+        SourceSpan::new(start, start.saturating_add(length))
     });
     AnalysisDiagnostic {
         code: code.to_owned(),

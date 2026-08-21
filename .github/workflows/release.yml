@@ -118,10 +118,8 @@ jobs:
           if-no-files-found: error
           overwrite: true
           retention-days: 90
-      - name: Package orphanode-core
-        run: cargo +stable package --locked --package orphanode-core
-      - name: Package orphanode-cli
-        run: cargo +stable package --locked --package orphanode-cli --no-verify
+      - name: Package and verify publishable crates
+        run: cargo +stable package --locked --workspace
       - name: Check dependencies
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:

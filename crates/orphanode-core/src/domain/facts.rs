@@ -178,6 +178,7 @@ impl UnknownGuardKind {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SymbolFactFlags {
     pub imported: bool,
     pub exported: bool,
@@ -210,6 +211,7 @@ pub enum ReferenceOwner {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SymbolReferenceFact {
     pub owner: ReferenceOwner,
     pub region: ExecutionRegionId,
@@ -305,6 +307,7 @@ pub enum ClassMemberVisibility {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ClassMemberFact {
     pub declaring_class: String,
     pub name: String,

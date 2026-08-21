@@ -50,7 +50,7 @@ pub struct FileSymbolReachability {
     pub symbols: Vec<SymbolLiveness>,
     /// False when direct eval or a dynamic scope can hide declaration uses.
     pub declarations_complete: bool,
-    /// False when a computed CommonJS export can hide the public export set.
+    /// False when a computed `CommonJS` export can hide the public export set.
     pub exports_complete: bool,
 }
 
@@ -86,6 +86,10 @@ struct Edge {
 }
 
 #[must_use]
+#[allow(
+    clippy::too_many_lines,
+    reason = "keeping the graph construction and traversal together makes its invariants explicit"
+)]
 pub fn analyze_symbols(input: &SymbolAnalysisInput<'_>) -> SymbolAnalysisResult {
     let mut node_by_key = BTreeMap::new();
     let mut keys = Vec::new();
@@ -654,18 +658,23 @@ mod tests {
                 symbols: symbols
                     .iter()
                     .enumerate()
-                    .map(|(index, (name, kind))| SymbolFact {
-                        id: SemanticSymbolId(index as u32),
-                        name: (*name).to_owned(),
-                        kind: *kind,
-                        namespace: SymbolNamespace::Runtime,
-                        region: ExecutionRegionId::MODULE,
-                        span: SourceSpan::new(index as u32, index as u32 + 1),
-                        declarations: vec![SourceSpan::new(index as u32, index as u32 + 1)],
-                        flags: SymbolFactFlags {
-                            safe_removal_span: true,
-                            ..SymbolFactFlags::default()
-                        },
+                    .map(|(index, (name, kind))| {
+                        let offset = u32::try_from(index)
+                            .expect("test fixture symbol count should fit in a u32");
+                        let end = offset.saturating_add(1);
+                        SymbolFact {
+                            id: SemanticSymbolId(offset),
+                            name: (*name).to_owned(),
+                            kind: *kind,
+                            namespace: SymbolNamespace::Runtime,
+                            region: ExecutionRegionId::MODULE,
+                            span: SourceSpan::new(offset, end),
+                            declarations: vec![SourceSpan::new(offset, end)],
+                            flags: SymbolFactFlags {
+                                safe_removal_span: true,
+                                ..SymbolFactFlags::default()
+                            },
+                        }
                     })
                     .collect(),
                 ..SymbolFileFacts::default()

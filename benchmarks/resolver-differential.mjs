@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,7 +10,9 @@ import { spawnSync } from "node:child_process";
 
 const options = parseArguments(process.argv.slice(2));
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
-const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "orphanode-resolver-"));
+const temporaryDirectory = await realpath(
+  await mkdtemp(path.join(os.tmpdir(), "orphanode-resolver-")),
+);
 let fixtureCopyIndex = 0;
 
 try {
@@ -43,7 +45,7 @@ async function copiedFixture(name) {
   const source = path.join(repositoryRoot, "fixtures", name);
   const destination = path.join(temporaryDirectory, `${name}-${fixtureCopyIndex}`);
   fixtureCopyIndex += 1;
-  await cp(source, destination, { recursive: true });
+  await cp(source, destination, { recursive: true, verbatimSymlinks: true });
   return destination;
 }
 

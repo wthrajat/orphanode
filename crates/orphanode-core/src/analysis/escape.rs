@@ -5,13 +5,6 @@ use crate::domain::facts::SourceSpan;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EscapeReason {
     DynamicModuleSpecifier,
-    UnknownProperty,
-    DirectEval,
-    FunctionConstructor,
-    Proxy,
-    UnknownDecorator,
-    ExternalCall,
-    CustomLoader,
 }
 
 /// The smallest graph surface that an unresolved behavior can invalidate.
@@ -19,9 +12,6 @@ pub(crate) enum EscapeReason {
 pub(crate) enum UnknownScope {
     RelativeDirectory(PathBuf),
     WorkspaceFileGraph,
-    ObjectMembers(String),
-    ClassSurface(String),
-    LexicalScopeAndAncestors(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,30 +29,6 @@ impl EscapeFact {
         Self {
             reason: EscapeReason::DynamicModuleSpecifier,
             scope: unknown_module_scope(leading_static_prefix),
-            span,
-        }
-    }
-
-    pub(crate) fn unknown_property(object: impl Into<String>, span: SourceSpan) -> Self {
-        Self {
-            reason: EscapeReason::UnknownProperty,
-            scope: UnknownScope::ObjectMembers(object.into()),
-            span,
-        }
-    }
-
-    pub(crate) fn escaped_class(class: impl Into<String>, span: SourceSpan) -> Self {
-        Self {
-            reason: EscapeReason::ExternalCall,
-            scope: UnknownScope::ClassSurface(class.into()),
-            span,
-        }
-    }
-
-    pub(crate) fn direct_eval(scope: impl Into<String>, span: SourceSpan) -> Self {
-        Self {
-            reason: EscapeReason::DirectEval,
-            scope: UnknownScope::LexicalScopeAndAncestors(scope.into()),
             span,
         }
     }
@@ -107,8 +73,7 @@ fn relative_directory_from_prefix(prefix: &str) -> Option<PathBuf> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{EscapeFact, UnknownScope, unknown_module_scope};
-    use crate::domain::facts::SourceSpan;
+    use super::{UnknownScope, unknown_module_scope};
 
     #[test]
     fn localizes_relative_dynamic_paths_to_their_containing_directory() {
@@ -134,23 +99,5 @@ mod tests {
                 UnknownScope::WorkspaceFileGraph
             );
         }
-    }
-
-    #[test]
-    fn keeps_property_class_and_eval_unknowns_local() {
-        let span = SourceSpan::new(10, 20);
-
-        assert_eq!(
-            EscapeFact::unknown_property("router", span).scope,
-            UnknownScope::ObjectMembers("router".to_owned())
-        );
-        assert_eq!(
-            EscapeFact::escaped_class("Controller", span).scope,
-            UnknownScope::ClassSurface("Controller".to_owned())
-        );
-        assert_eq!(
-            EscapeFact::direct_eval("function:load", span).scope,
-            UnknownScope::LexicalScopeAndAncestors("function:load".to_owned())
-        );
     }
 }

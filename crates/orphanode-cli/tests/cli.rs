@@ -271,6 +271,27 @@ fn whole_file_fixes_require_selection_preview_and_revalidate() {
     project.write("src/index.js", "console.log('entry');\n");
     project.write("src/unused.js", "export const unused = true;\n");
 
+    let report_output = Command::new(env!("CARGO_BIN_EXE_orphanode"))
+        .args(["scan", "--root"])
+        .arg(project.path())
+        .args(["--issues", "files", "--format", "json"])
+        .output()
+        .expect("scan file fix project");
+    let report: Value =
+        serde_json::from_slice(&report_output.stdout).expect("valid file fix report");
+    let unused_file = report["findings"]
+        .as_array()
+        .and_then(|findings| {
+            findings.iter().find(|finding| {
+                finding["issueType"] == "unusedFiles"
+                    && finding["paths"]
+                        .as_array()
+                        .is_some_and(|paths| paths.iter().any(|path| path == "src/unused.js"))
+            })
+        })
+        .expect("unused file finding");
+    assert_eq!(unused_file["fixEligibility"], "eligible", "{report:#}");
+
     let preview = Command::new(env!("CARGO_BIN_EXE_orphanode"))
         .args(["scan", "--root"])
         .arg(project.path())
@@ -278,7 +299,12 @@ fn whole_file_fixes_require_selection_preview_and_revalidate() {
         .output()
         .expect("preview file fix");
     let preview_text = String::from_utf8(preview.stdout).expect("UTF-8 preview");
-    assert_eq!(preview.status.code(), Some(1));
+    assert_eq!(
+        preview.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
     assert!(preview_text.contains("FILE CHANGES (1)"));
     assert!(preview_text.contains("delete  src/unused.js"));
     assert!(preview_text.contains("reason  src/unused.js is unreachable"));

@@ -33,6 +33,13 @@ pub enum TargetProfileError {
     Cycle(String),
 }
 
+/// Resolves target inheritance into deterministic, fully populated profiles.
+///
+/// # Errors
+///
+/// Returns [`TargetProfileError::UnknownParent`] when a profile extends an
+/// undefined profile, or [`TargetProfileError::Cycle`] when inheritance is
+/// cyclic.
 pub fn resolve_target_profiles(
     definitions: &BTreeMap<String, TargetProfileDefinition>,
     default_world: WorldMode,

@@ -95,6 +95,11 @@ pub struct TypeScriptWorkerHost {
 impl TypeScriptWorkerHost {
     /// Starts the explicit deep-mode worker. Starting the process alone does not
     /// authorize loading project-local TypeScript code.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the timeout or message limit is invalid, the worker
+    /// process cannot be started, or its standard I/O channels are unavailable.
     pub fn spawn(options: TypeScriptWorkerOptions) -> Result<Self, TypeScriptWorkerError> {
         if options.timeout.is_zero() || options.timeout > MAX_TIMEOUT {
             return Err(TypeScriptWorkerError::InvalidTimeout);
@@ -123,7 +128,7 @@ impl TypeScriptWorkerHost {
             .ok_or(TypeScriptWorkerError::MissingChannel)?;
         let (sender, responses) = mpsc::channel();
         let max_message_bytes = options.max_message_bytes;
-        thread::spawn(move || read_responses(stdout, max_message_bytes, sender));
+        thread::spawn(move || read_responses(stdout, max_message_bytes, &sender));
 
         Ok(Self {
             child,
@@ -135,6 +140,11 @@ impl TypeScriptWorkerHost {
         })
     }
 
+    /// Requests the worker's supported protocol capabilities.
+    ///
+    /// # Errors
+    ///
+    /// Returns a protocol, I/O, timeout, size-limit, or worker rejection error.
     pub fn capabilities(&mut self) -> Result<WorkerReply, TypeScriptWorkerError> {
         self.request("capabilities", json!({}))
     }
@@ -184,10 +194,27 @@ impl TypeScriptWorkerHost {
         )
     }
 
+    /// Runs a batch of initialized TypeScript queries.
+    ///
+    /// # Errors
+    ///
+    /// Returns a protocol, I/O, timeout, size-limit, or worker rejection error.
     pub fn query(&mut self, queries: Vec<Value>) -> Result<WorkerReply, TypeScriptWorkerError> {
-        self.request("query", json!({ "queries": queries }))
+        let params = Value::Object(
+            [("queries".to_owned(), Value::Array(queries))]
+                .into_iter()
+                .collect(),
+        );
+        self.request("query", params)
     }
 
+    /// Sends a request using the worker protocol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when request serialization or I/O fails, a message
+    /// exceeds its size limit, the worker times out or exits, or the response is
+    /// invalid or rejected.
     pub fn request(
         &mut self,
         method: &str,
@@ -196,15 +223,20 @@ impl TypeScriptWorkerHost {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
         let timeout_ms = u64::try_from(self.timeout.as_millis()).unwrap_or(30_000);
-        let mut encoded = serde_json::to_vec(&json!({
-            "protocol": PROTOCOL_NAME,
-            "protocolVersion": PROTOCOL_VERSION,
-            "id": id,
-            "method": method,
-            "params": params,
-            "timeoutMs": timeout_ms,
-        }))
-        .map_err(TypeScriptWorkerError::InvalidJson)?;
+        let request = Value::Object(
+            [
+                ("protocol".to_owned(), Value::from(PROTOCOL_NAME)),
+                ("protocolVersion".to_owned(), Value::from(PROTOCOL_VERSION)),
+                ("id".to_owned(), Value::from(id)),
+                ("method".to_owned(), Value::from(method)),
+                ("params".to_owned(), params),
+                ("timeoutMs".to_owned(), Value::from(timeout_ms)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let mut encoded =
+            serde_json::to_vec(&request).map_err(TypeScriptWorkerError::InvalidJson)?;
         if encoded.len() > self.max_message_bytes {
             return Err(TypeScriptWorkerError::RequestTooLarge {
                 limit: self.max_message_bytes,
@@ -237,7 +269,7 @@ impl TypeScriptWorkerHost {
         };
         let value: Value =
             serde_json::from_slice(&response).map_err(TypeScriptWorkerError::InvalidJson)?;
-        validate_response(value, id)
+        validate_response(&value, id)
     }
 
     fn terminate(&mut self) {
@@ -261,7 +293,7 @@ enum ReaderFailure {
 fn read_responses(
     mut stdout: impl Read,
     max_message_bytes: usize,
-    sender: mpsc::Sender<Result<Vec<u8>, ReaderFailure>>,
+    sender: &mpsc::Sender<Result<Vec<u8>, ReaderFailure>>,
 ) {
     let mut response = Vec::new();
     let mut byte = [0_u8; 1];
@@ -295,7 +327,10 @@ fn read_responses(
     }
 }
 
-fn validate_response(value: Value, expected_id: u64) -> Result<WorkerReply, TypeScriptWorkerError> {
+fn validate_response(
+    value: &Value,
+    expected_id: u64,
+) -> Result<WorkerReply, TypeScriptWorkerError> {
     if value.get("protocol").and_then(Value::as_str) != Some(PROTOCOL_NAME)
         || value.get("protocolVersion").and_then(Value::as_u64) != Some(u64::from(PROTOCOL_VERSION))
         || value.get("id").and_then(Value::as_u64) != Some(expected_id)
@@ -337,7 +372,7 @@ mod tests {
     #[test]
     fn protocol_validation_rejects_a_mismatched_id() {
         let error = validate_response(
-            json!({
+            &json!({
                 "protocol": PROTOCOL_NAME,
                 "protocolVersion": PROTOCOL_VERSION,
                 "id": 2,
@@ -353,7 +388,7 @@ mod tests {
     #[test]
     fn protocol_validation_surfaces_worker_errors_without_source_text() {
         let error = validate_response(
-            json!({
+            &json!({
                 "protocol": PROTOCOL_NAME,
                 "protocolVersion": PROTOCOL_VERSION,
                 "id": 1,

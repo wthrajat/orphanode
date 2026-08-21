@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn invalid_ignore_rules_are_visible_walk_errors() {
         let project = TestProject::new();
-        project.write(".ignore", "[\n");
+        project.write(".ignore", "[z-a]\n");
         project.write("index.js", "");
 
         let error = discover_source_files(project.path()).expect_err("reject invalid ignore rule");
@@ -329,8 +329,10 @@ mod tests {
         let project = TestProject::new();
         project.write("a.js", "");
         project.write("b.js", "");
-        let mut limits = AnalysisLimits::default();
-        limits.max_discovered_files = 1;
+        let limits = AnalysisLimits {
+            max_discovered_files: 1,
+            ..AnalysisLimits::default()
+        };
 
         let error = discover_source_files_with_limits(project.path(), limits)
             .expect_err("reject oversized source universe");

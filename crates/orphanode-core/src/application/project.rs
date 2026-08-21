@@ -28,7 +28,7 @@ use crate::{
         DiscoveryError,
         configuration::{
             AnalysisMode, ConfidenceLevel, ConfigurationError, ConfigurationLayers,
-            ConfigurationOverride, ProjectConfiguration, ProjectConfigurationKind, RetainRule,
+            ConfigurationOverride, ProjectConfiguration, ProjectConfigurationKind,
             TargetConfiguration, WorldMode, discover_project_configurations,
             load_orphanode_configuration, merge_configuration_layers, parse_jsonc_value,
             stale_ignore_rules, stale_retain_rules,
@@ -209,6 +209,42 @@ struct PackageContext<'a> {
 
 type DeepMemberRawEvidence = BTreeMap<(String, u32), DeepRawResolution>;
 
+#[derive(Clone, Copy)]
+struct DeepMemberEvidenceRequest<'a> {
+    workspace_root: &'a Path,
+    files: &'a [PathBuf],
+    project_configurations: &'a [ProjectConfiguration],
+    effective_config_bytes: &'a [u8],
+    source_report: &'a ScanReport,
+    candidates: &'a BTreeSet<(String, u32)>,
+    limits: AnalysisLimits,
+}
+
+#[derive(Clone, Copy)]
+struct DeepConfigurationEvidenceRequest<'a> {
+    workspace_root: &'a Path,
+    typescript_resolution_root: &'a Path,
+    worker_script: &'a Path,
+    configuration_path: &'a Path,
+    query_keys: &'a [(String, u32)],
+    effective_config_bytes: &'a [u8],
+    source_digest: Digest,
+    allowed_source_paths: &'a BTreeSet<String>,
+    limits: AnalysisLimits,
+}
+
+struct DependencyFindingInput<'a> {
+    issue_id: &'static str,
+    issue_type: &'static str,
+    workspace: &'a str,
+    dependency: &'a str,
+    summary: String,
+    confidence: DependencyConfidence,
+    categories: &'a [DependencyCategory],
+    package_manager_supported: bool,
+    target_profiles: &'a [String],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum DeepRawResolution {
@@ -266,6 +302,11 @@ struct CachedDeepFact {
 /// Runs the complete static project-discovery path before the graph scan.
 ///
 /// The orchestrator never executes source, package scripts, or configuration.
+///
+/// # Errors
+///
+/// Returns [`ProjectScanError`] when discovery, configuration, or analysis
+/// fails, or when the selected project has no source files or entry roots.
 pub fn scan_project(request: &ProjectScanRequest) -> Result<ScanReport, ProjectScanError> {
     scan_project_measured(request).map(|output| output.report)
 }
@@ -274,6 +315,13 @@ pub fn scan_project(request: &ProjectScanRequest) -> Result<ScanReport, ProjectS
 ///
 /// Durations deliberately do not enter [`ScanReport`], preserving deterministic
 /// machine output while allowing the CLI to render diagnostics for local profiling.
+///
+/// # Errors
+///
+/// Returns [`ProjectScanError`] when discovery, configuration, or analysis
+/// fails, or when the selected project has no source files or entry roots.
+// This function deliberately keeps the full scan pipeline visible in execution order.
+#[allow(clippy::too_many_lines)]
 pub fn scan_project_measured(
     request: &ProjectScanRequest,
 ) -> Result<ProjectScanOutput, ProjectScanError> {
@@ -514,13 +562,15 @@ pub fn scan_project_measured(
             if !uncached_candidates.is_empty() {
                 let deep_started = Instant::now();
                 let (additional_evidence, diagnostic) = collect_deep_member_evidence(
-                    &workspace.workspace_root,
-                    &files,
-                    &project_configurations,
-                    &config_bytes,
-                    &initial_report,
-                    &uncached_candidates,
-                    request.limits,
+                    DeepMemberEvidenceRequest {
+                        workspace_root: &workspace.workspace_root,
+                        files: &files,
+                        project_configurations: &project_configurations,
+                        effective_config_bytes: &config_bytes,
+                        source_report: &initial_report,
+                        candidates: &uncached_candidates,
+                        limits: request.limits,
+                    },
                     &mut metrics,
                 );
                 metrics.deep_analysis.duration += deep_started.elapsed();
@@ -687,7 +737,10 @@ fn workspace_module_targets(
             .iter()
             .find(|context| context.package.root == package.root)
             .map_or(&empty_targets, |context| &context.effective.targets);
-        let entry_profiles = manifest_profiles(&[profile.to_owned()], configured_targets)?;
+        let selected_profiles = [profile.to_owned()];
+        let target_conditions =
+            resolve_conditions_for_targets(&selected_profiles, configured_targets)?;
+        let entry_profiles = manifest_profiles(&selected_profiles, configured_targets)?;
         for entry_profile in entry_profiles {
             for entry in package_entry_roots(&package.manifest, entry_profile)? {
                 let candidate = package.root.join(entry.path);
@@ -706,7 +759,7 @@ fn workspace_module_targets(
                 );
             }
             for (export_key, export_target) in
-                package_subpath_exports(&package.manifest, entry_profile)
+                package_subpath_exports(&package.manifest, entry_profile, &target_conditions)
             {
                 for (specifier, source) in expand_workspace_export(
                     package,
@@ -773,6 +826,7 @@ fn add_workspace_module_target(
 fn package_subpath_exports(
     manifest: &PackageManifest,
     profile: EntryTargetProfile,
+    target_conditions: &BTreeSet<String>,
 ) -> Vec<(String, String)> {
     let Some(Value::Object(exports)) = manifest.exports.as_ref() else {
         return Vec::new();
@@ -780,7 +834,7 @@ fn package_subpath_exports(
     if !exports.keys().any(|key| key.starts_with('.')) {
         return Vec::new();
     }
-    let conditions: &[&str] = match profile {
+    let profile_conditions: &[&str] = match profile {
         EntryTargetProfile::NodeImport => &["node", "import"],
         EntryTargetProfile::NodeRequire => &["node", "require"],
         EntryTargetProfile::Bundler => &["import", "module"],
@@ -788,13 +842,19 @@ fn package_subpath_exports(
         EntryTargetProfile::Types => &["types"],
         EntryTargetProfile::CommandLine => &[],
     };
+    let mut conditions = target_conditions.clone();
+    conditions.extend(
+        profile_conditions
+            .iter()
+            .map(|condition| (*condition).to_owned()),
+    );
     let mut selected = Vec::new();
     for (key, value) in exports {
         if key == "." || !key.starts_with("./") {
             continue;
         }
         let mut values = Vec::new();
-        collect_conditional_export_targets(value, conditions, &mut values);
+        collect_conditional_export_targets(value, &conditions, &mut values);
         selected.extend(values.into_iter().map(|value| (key.clone(), value)));
     }
     selected
@@ -802,7 +862,7 @@ fn package_subpath_exports(
 
 fn collect_conditional_export_targets(
     value: &Value,
-    conditions: &[&str],
+    conditions: &BTreeSet<String>,
     targets: &mut Vec<String>,
 ) {
     match value {
@@ -813,10 +873,9 @@ fn collect_conditional_export_targets(
             }
         }
         Value::Object(values) => {
-            let selected = conditions
-                .iter()
-                .find_map(|condition| values.get(*condition))
-                .or_else(|| values.get("default"));
+            let selected = values.iter().find_map(|(condition, value)| {
+                (condition == "default" || conditions.contains(condition)).then_some(value)
+            });
             if let Some(selected) = selected {
                 collect_conditional_export_targets(selected, conditions, targets);
             }
@@ -1324,6 +1383,8 @@ fn collect_profile_entries(
     Ok(entries_by_profile)
 }
 
+// Profile merging is intentionally centralized to preserve deterministic ordering.
+#[allow(clippy::too_many_lines)]
 fn merge_profile_reports(
     mut reports: Vec<(String, ScanReport)>,
 ) -> Result<ScanReport, ProjectScanError> {
@@ -1556,7 +1617,7 @@ fn collect_package_entries(
 ) -> Result<(), ProjectScanError> {
     for entry in configured_entries {
         add_entry_candidate(
-            package.root.join(entry),
+            &package.root.join(entry),
             "static OrphaNode configuration",
             project_configurations,
             file_set,
@@ -1588,7 +1649,7 @@ fn collect_package_entries(
     for reference in &scripts.references {
         if reference.kind == ScriptReferenceKind::File {
             add_entry_candidate(
-                package
+                &package
                     .root
                     .join(normalize_relative(Path::new(&reference.value))),
                 &format!("package script `{}`", reference.script),
@@ -1706,7 +1767,7 @@ fn add_manifest_entry(
     diagnostics: &mut Vec<AnalysisDiagnostic>,
 ) {
     add_entry_candidate(
-        package.root.join(entry.path),
+        &package.root.join(entry.path),
         &format!("package.json {:?} entry", entry.field),
         project_configurations,
         file_set,
@@ -1716,19 +1777,19 @@ fn add_manifest_entry(
 }
 
 fn add_entry_candidate(
-    candidate: PathBuf,
+    candidate: &Path,
     evidence: &str,
     project_configurations: &[ProjectConfiguration],
     file_set: &BTreeSet<PathBuf>,
     entries: &mut BTreeSet<PathBuf>,
     diagnostics: &mut Vec<AnalysisDiagnostic>,
 ) {
-    if let Some(source) = map_entry_to_source(&candidate, project_configurations, file_set) {
+    if let Some(source) = map_entry_to_source(candidate, project_configurations, file_set) {
         entries.insert(source);
     } else {
         diagnostics.push(AnalysisDiagnostic {
             code: "entry_source_not_found".to_owned(),
-            path: normalize_relative(&candidate)
+            path: normalize_relative(candidate)
                 .to_string_lossy()
                 .replace('\\', "/"),
             severity: DiagnosticSeverity::Warning,
@@ -2365,6 +2426,8 @@ fn workspace_path(workspace: &str, relative: &str) -> String {
     }
 }
 
+// Dependency evidence collection and result projection share one ordered policy pass.
+#[allow(clippy::too_many_lines)]
 fn append_dependency_results(
     workspace: &WorkspaceDiscovery,
     contexts: &[PackageContext<'_>],
@@ -2505,17 +2568,19 @@ fn append_dependency_results(
             DependencyOutcomeKind::Unused
             | DependencyOutcomeKind::UnreferencedPeer
             | DependencyOutcomeKind::UnreferencedOptional => {
-                report.findings.push(dependency_finding(
-                    "ORP2001",
-                    "unusedDependency",
-                    &outcome.workspace,
-                    &outcome.package,
-                    dependency_summary(outcome.kind, &outcome.package),
-                    outcome.confidence,
-                    &outcome.categories,
-                    dependency_fixes_supported,
-                    target_profiles,
-                ));
+                report
+                    .findings
+                    .push(dependency_finding(DependencyFindingInput {
+                        issue_id: "ORP2001",
+                        issue_type: "unusedDependency",
+                        workspace: &outcome.workspace,
+                        dependency: &outcome.package,
+                        summary: dependency_summary(outcome.kind, &outcome.package),
+                        confidence: outcome.confidence,
+                        categories: &outcome.categories,
+                        package_manager_supported: dependency_fixes_supported,
+                        target_profiles,
+                    }));
             }
             DependencyOutcomeKind::Unlisted | DependencyOutcomeKind::Misplaced => {
                 let issue_type = if outcome.kind == DependencyOutcomeKind::Misplaced {
@@ -2534,17 +2599,19 @@ fn append_dependency_results(
                         outcome.package, outcome.workspace
                     )
                 };
-                report.findings.push(dependency_finding(
-                    "ORP2002",
-                    issue_type,
-                    &outcome.workspace,
-                    &outcome.package,
-                    summary,
-                    outcome.confidence,
-                    &outcome.categories,
-                    dependency_fixes_supported,
-                    target_profiles,
-                ));
+                report
+                    .findings
+                    .push(dependency_finding(DependencyFindingInput {
+                        issue_id: "ORP2002",
+                        issue_type,
+                        workspace: &outcome.workspace,
+                        dependency: &outcome.package,
+                        summary,
+                        confidence: outcome.confidence,
+                        categories: &outcome.categories,
+                        package_manager_supported: dependency_fixes_supported,
+                        target_profiles,
+                    }));
             }
             DependencyOutcomeKind::Undetermined => {
                 report.retentions.push(RetentionReport {
@@ -2598,6 +2665,7 @@ fn apply_file_fix_eligibility(
     profiles: &[String],
     report: &mut ScanReport,
 ) {
+    let selected_profiles = profiles.iter().map(String::as_str).collect::<BTreeSet<_>>();
     let file_statuses = report
         .files
         .iter()
@@ -2613,7 +2681,12 @@ fn apply_file_fix_eligibility(
             .is_some_and(|context| {
                 context.effective.world.unwrap_or(WorldMode::Closed) == WorldMode::Closed
             });
-        let unused_in_every_profile = finding.target_profiles == profiles;
+        let finding_profiles = finding
+            .target_profiles
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        let unused_in_every_profile = finding_profiles == selected_profiles;
         let unreachable_in_merged_graph = finding
             .paths
             .iter()
@@ -2789,9 +2862,7 @@ fn suppress_blocked_findings(workspace: &WorkspaceDiscovery, report: &mut ScanRe
             retained.extend(retentions_for_finding(
                 finding,
                 "Potential issue retained because coverage is incomplete",
-                vec![
-                    "A blocking diagnostic could provide an unmodeled path to this item".to_owned(),
-                ],
+                &["A blocking diagnostic could provide an unmodeled path to this item".to_owned()],
             ));
         }
         !blocked
@@ -2819,7 +2890,7 @@ fn apply_retain_rules(contexts: &[PackageContext<'_>], report: &mut ScanReport) 
             retained.extend(retentions_for_finding(
                 &finding,
                 "Item retained by an explicit static contract",
-                vec![format!("Configured retain rule: {}", rule.reason)],
+                &[format!("Configured retain rule: {}", rule.reason)],
             ));
             continue;
         }
@@ -2831,7 +2902,7 @@ fn apply_retain_rules(contexts: &[PackageContext<'_>], report: &mut ScanReport) 
                 retained.extend(retentions_for_finding(
                     &finding,
                     "Item retained by an explicit static contract",
-                    vec![reason],
+                    &[reason],
                 ));
             } else {
                 live_profiles.push(profile);
@@ -2888,30 +2959,30 @@ fn plugin_retention_reason(
                 detected.plugin.display_name, pattern.reason
             ));
         }
-        if finding.issue_type == "unusedExport" {
-            if let Some(root) = contributions.export_roots.iter().find(|root| {
+        if finding.issue_type == "unusedExport"
+            && let Some(root) = contributions.export_roots.iter().find(|root| {
                 pattern_matches(Path::new("."), &root.module_pattern, relative)
                     && finding.symbol.as_deref() == Some(root.export_name.as_str())
-            }) {
-                return Some(format!(
-                    "{} export contract: {}",
-                    detected.plugin.display_name, root.reason
-                ));
-            }
+            })
+        {
+            return Some(format!(
+                "{} export contract: {}",
+                detected.plugin.display_name, root.reason
+            ));
         }
-        if finding.issue_type == "unusedMember" {
-            if let Some(root) = contributions.member_roots.iter().find(|root| {
+        if finding.issue_type == "unusedMember"
+            && let Some(root) = contributions.member_roots.iter().find(|root| {
                 pattern_matches(Path::new("."), &root.module_pattern, relative)
                     && finding.symbol.as_deref().is_some_and(|symbol| {
                         symbol == format!("{}.{}", root.export_name, root.member_name)
                             || symbol.ends_with(&format!(".{}", root.member_name))
                     })
-            }) {
-                return Some(format!(
-                    "{} member contract: {}",
-                    detected.plugin.display_name, root.reason
-                ));
-            }
+            })
+        {
+            return Some(format!(
+                "{} member contract: {}",
+                detected.plugin.display_name, root.reason
+            ));
         }
     }
     None
@@ -2940,7 +3011,7 @@ fn finding_item(finding: &Finding) -> String {
 fn retentions_for_finding(
     finding: &Finding,
     summary: &str,
-    evidence: Vec<String>,
+    evidence: &[String],
 ) -> Vec<RetentionReport> {
     let items = if finding.issue_type == "unusedFiles" {
         finding.paths.clone()
@@ -2955,7 +3026,7 @@ fn retentions_for_finding(
             workspace: finding.workspace.clone(),
             target_profiles: finding.target_profiles.clone(),
             summary: summary.to_owned(),
-            evidence: evidence.clone(),
+            evidence: evidence.to_vec(),
         })
         .collect()
 }
@@ -3104,17 +3175,18 @@ fn collect_binary_owners(
     }
 }
 
-fn dependency_finding(
-    issue_id: &'static str,
-    issue_type: &'static str,
-    workspace: &str,
-    dependency: &str,
-    summary: String,
-    confidence: DependencyConfidence,
-    categories: &[DependencyCategory],
-    package_manager_supported: bool,
-    target_profiles: &[String],
-) -> Finding {
+fn dependency_finding(input: DependencyFindingInput<'_>) -> Finding {
+    let DependencyFindingInput {
+        issue_id,
+        issue_type,
+        workspace,
+        dependency,
+        summary,
+        confidence,
+        categories,
+        package_manager_supported,
+        target_profiles,
+    } = input;
     let otherwise_eligible = confidence == DependencyConfidence::High && issue_id == "ORP2001";
     let mut blockers = Vec::new();
     if otherwise_eligible && !package_manager_supported {
@@ -3356,7 +3428,6 @@ fn manifest_profiles(
             "cli" => {
                 push_profile(&mut result, EntryTargetProfile::CommandLine);
             }
-            "test" | "development" | "import" | "require" | "default" => {}
             _ => {}
         }
     }
@@ -3512,9 +3583,11 @@ fn display_workspace(root: &Path) -> String {
 fn normalize_relative(path: &Path) -> PathBuf {
     path.components()
         .filter_map(|component| match component {
-            Component::CurDir => None,
             Component::Normal(value) => Some(value),
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => None,
+            Component::CurDir
+            | Component::ParentDir
+            | Component::RootDir
+            | Component::Prefix(_) => None,
         })
         .collect()
 }
@@ -3539,15 +3612,18 @@ fn pattern_matches(root: &Path, pattern: &str, path: &Path) -> bool {
 }
 
 fn collect_deep_member_evidence(
-    workspace_root: &Path,
-    files: &[PathBuf],
-    project_configurations: &[ProjectConfiguration],
-    effective_config_bytes: &[u8],
-    source_report: &ScanReport,
-    candidates: &BTreeSet<(String, u32)>,
-    limits: AnalysisLimits,
+    request: DeepMemberEvidenceRequest<'_>,
     metrics: &mut ProjectScanMetrics,
 ) -> (DeepMemberRawEvidence, Option<AnalysisDiagnostic>) {
+    let DeepMemberEvidenceRequest {
+        workspace_root,
+        files,
+        project_configurations,
+        effective_config_bytes,
+        source_report,
+        candidates,
+        limits,
+    } = request;
     let mut evidence = DeepMemberRawEvidence::new();
     let mut query_groups = BTreeMap::<PathBuf, Vec<(String, u32)>>::new();
     let mut unconfigured_files = BTreeSet::new();
@@ -3612,15 +3688,17 @@ fn collect_deep_member_evidence(
         };
         let typescript_resolution_root = configuration_path.parent().unwrap_or(workspace_root);
         if let Err(message) = collect_deep_configuration_evidence(
-            workspace_root,
-            typescript_resolution_root,
-            &worker_script,
-            &configuration_path,
-            &query_keys,
-            effective_config_bytes,
-            source_digest,
-            &allowed_source_paths,
-            limits,
+            DeepConfigurationEvidenceRequest {
+                workspace_root,
+                typescript_resolution_root,
+                worker_script: &worker_script,
+                configuration_path: &configuration_path,
+                query_keys: &query_keys,
+                effective_config_bytes,
+                source_digest,
+                allowed_source_paths: &allowed_source_paths,
+                limits,
+            },
             &mut evidence,
             metrics,
         ) {
@@ -3642,19 +3720,24 @@ fn typescript_configuration_for_path<'a>(
         .max_by_key(|configuration| configuration.root.components().count())
 }
 
+// Worker handshake, cache lookup, query, and persistence form one transaction.
+#[allow(clippy::too_many_lines)]
 fn collect_deep_configuration_evidence(
-    workspace_root: &Path,
-    typescript_resolution_root: &Path,
-    worker_script: &Path,
-    configuration_path: &Path,
-    query_keys: &[(String, u32)],
-    effective_config_bytes: &[u8],
-    source_digest: Digest,
-    allowed_source_paths: &BTreeSet<String>,
-    limits: AnalysisLimits,
+    request: DeepConfigurationEvidenceRequest<'_>,
     evidence: &mut DeepMemberRawEvidence,
     metrics: &mut ProjectScanMetrics,
 ) -> Result<(), String> {
+    let DeepConfigurationEvidenceRequest {
+        workspace_root,
+        typescript_resolution_root,
+        worker_script,
+        configuration_path,
+        query_keys,
+        effective_config_bytes,
+        source_digest,
+        allowed_source_paths,
+        limits,
+    } = request;
     let mut worker = TypeScriptWorkerHost::spawn(
         TypeScriptWorkerOptions::new(worker_script).with_limits(limits),
     )
@@ -4186,7 +4269,7 @@ fn sort_diagnostics(diagnostics: &mut Vec<AnalysisDiagnostic>) {
     diagnostics.dedup();
 }
 
-fn sort_findings(findings: &mut Vec<Finding>) {
+fn sort_findings(findings: &mut [Finding]) {
     findings.sort_by(|left, right| {
         (
             &left.workspace,

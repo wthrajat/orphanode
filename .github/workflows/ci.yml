@@ -106,13 +106,8 @@ jobs:
           persist-credentials: false
       - name: Install stable Rust
         run: rustup toolchain install stable --profile minimal --no-self-update
-      - name: Package orphanode-core
-        run: cargo +stable package --package orphanode-core
-      # The extracted CLI package cannot resolve an unreleased core version in
-      # ordinary CI. Workspace tests cover the CLI; release verifies it after
-      # publishing core and waiting for crates.io propagation.
-      - name: Package orphanode-cli
-        run: cargo +stable package --package orphanode-cli --no-verify
+      - name: Package and verify publishable crates
+        run: cargo +stable package --workspace
 
   dependencies:
     name: Dependencies

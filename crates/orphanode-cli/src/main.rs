@@ -4,7 +4,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     env,
     error::Error,
-    fmt, fs,
+    fmt::{self, Write as _},
+    fs,
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
     process::{Command as ProcessCommand, ExitCode},
@@ -59,7 +60,7 @@ enum Command {
     /// Explain why a file or package is retained, reported, or incomplete.
     Why(WhyArgs),
 
-    /// Describe an OrphaNode issue code and its safety policy.
+    /// Describe an `OrphaNode` issue code and its safety policy.
     Explain(ExplainArgs),
 
     /// Validate and display the effective static project configuration.
@@ -70,6 +71,7 @@ enum Command {
 }
 
 #[derive(Debug, Args)]
+#[allow(clippy::struct_excessive_bools)]
 struct ScanArgs {
     #[command(flatten)]
     universe: UniverseArgs,
@@ -78,7 +80,7 @@ struct ScanArgs {
     #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
     format: OutputFormat,
 
-    /// Color policy for human output. NO_COLOR is honored in auto mode.
+    /// Color policy for human output. `NO_COLOR` is honored in auto mode.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     color: ColorChoice,
 
@@ -302,11 +304,11 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode, CliError> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Scan(arguments) => run_scan(arguments),
+        Command::Scan(arguments) => run_scan(&arguments),
         Command::Why(arguments) => run_why(arguments),
-        Command::Explain(arguments) => run_explain(arguments),
-        Command::Config(arguments) => run_config(arguments),
-        Command::Cache(arguments) => run_cache(arguments),
+        Command::Explain(arguments) => run_explain(&arguments),
+        Command::Config(arguments) => run_config(&arguments),
+        Command::Cache(arguments) => run_cache(&arguments),
     }
 }
 
@@ -399,14 +401,15 @@ impl ScanTelemetry {
     }
 }
 
-fn run_scan(arguments: ScanArgs) -> Result<ExitCode, CliError> {
+#[allow(clippy::too_many_lines)]
+fn run_scan(arguments: &ScanArgs) -> Result<ExitCode, CliError> {
     if (arguments.fix || arguments.apply) && arguments.format != OutputFormat::Human {
         return Err(CliError::InvalidArguments(
             "--fix and --apply currently require --format human so the plan is reviewed before execution"
                 .to_owned(),
         ));
     }
-    validate_scan_universe_options(&arguments)?;
+    validate_scan_universe_options(arguments)?;
     let started = Instant::now();
     let mut telemetry = ScanTelemetry::default();
     let analyzed_manifests = if arguments.fix && !arguments.fix_dependencies.is_empty() {
@@ -421,8 +424,8 @@ fn run_scan(arguments: ScanArgs) -> Result<ExitCode, CliError> {
     } else {
         BTreeMap::new()
     };
-    let issues = selected_scan_issues(&arguments);
-    let mut report = if should_use_project_discovery(&arguments) {
+    let issues = selected_scan_issues(arguments);
+    let mut report = if should_use_project_discovery(arguments) {
         let mut request = ProjectScanRequest::new(&arguments.universe.root);
         request.workspace.clone_from(&arguments.workspace);
         request.entries.clone_from(&arguments.universe.entries);
@@ -492,7 +495,7 @@ fn run_scan(arguments: ScanArgs) -> Result<ExitCode, CliError> {
             &arguments.universe.root,
             &report,
             arguments.apply,
-            &arguments,
+            arguments,
             &analyzed_manifests,
         )?;
         output.push_str(&fix_output.rendered);
@@ -538,13 +541,14 @@ fn run_scan(arguments: ScanArgs) -> Result<ExitCode, CliError> {
 fn append_human_timings(output: &mut String, telemetry: &ScanTelemetry, total: Duration) {
     output.push_str("\nTIMINGS\n");
     for stage in &telemetry.stages {
-        output.push_str(&format!(
-            "  {:<24} {} ms\n",
+        let _ = writeln!(
+            output,
+            "  {:<24} {} ms",
             stage.name,
             stage.duration.as_millis()
-        ));
+        );
     }
-    output.push_str(&format!("  {:<24} {} ms\n", "total", total.as_millis()));
+    let _ = writeln!(output, "  {:<24} {} ms", "total", total.as_millis());
 }
 
 fn emit_machine_timings(telemetry: &ScanTelemetry, total: Duration) {
@@ -734,6 +738,7 @@ fn capture_analyzed_manifests(root: &Path) -> Result<BTreeMap<String, AnalyzedMa
     Ok(manifests)
 }
 
+#[allow(clippy::too_many_lines)]
 fn run_fix_workflow(
     root: &Path,
     report: &orphanode_core::ScanReport,
@@ -783,7 +788,8 @@ fn run_fix_workflow(
     for finding in &report.findings {
         if finding.issue_type == "unusedDependency"
             && dependency_fix_can_be_planned(finding.fix_eligibility, apply)
-            && let (Some(manager), Some(dependency)) = (manager, finding.dependency.as_deref())
+            && manager.is_some()
+            && let Some(dependency) = finding.dependency.as_deref()
         {
             let qualified = format!("{}:{dependency}", finding.workspace);
             let requested = requested_fix_dependencies.contains(dependency)
@@ -927,12 +933,9 @@ fn run_fix_workflow(
     let engine = FixEngine::new(&workspace.workspace_root)?;
     let preview = engine.preview(&plan)?;
     let mut output = String::from("\nFIX PREVIEW\n");
-    output.push_str(&format!("  fingerprint  {}\n", preview.fingerprint()));
+    let _ = writeln!(output, "  fingerprint  {}", preview.fingerprint());
     if !preview.file_changes.is_empty() {
-        output.push_str(&format!(
-            "  FILE CHANGES ({})\n",
-            preview.file_changes.len()
-        ));
+        let _ = writeln!(output, "  FILE CHANGES ({})", preview.file_changes.len());
     }
     for (change, planned) in preview
         .file_changes
@@ -943,11 +946,12 @@ fn run_fix_workflow(
             PreviewChangeKind::Modify => "modify",
             PreviewChangeKind::Delete => "delete",
         };
-        output.push_str(&format!(
-            "    {action}  {}\n      reason  {}\n",
+        let _ = writeln!(
+            output,
+            "    {action}  {}\n      reason  {}",
             safe_text(change.path.as_str(), "<invalid path>"),
             safe_text(planned.reason(), "<missing reason>")
-        ));
+        );
     }
     let dependency_change_count = preview
         .plan()
@@ -956,27 +960,28 @@ fn run_fix_workflow(
         .map(|command| command.removals.len())
         .sum::<usize>();
     if dependency_change_count > 0 {
-        output.push_str(&format!(
-            "  DEPENDENCY CHANGES ({dependency_change_count})\n"
-        ));
+        let _ = writeln!(output, "  DEPENDENCY CHANGES ({dependency_change_count})");
     }
     for command in &preview.plan().package_commands {
-        output.push_str(&format!(
-            "    workspace  {}\n      manifest  {}\n",
+        let _ = writeln!(
+            output,
+            "    workspace  {}\n      manifest  {}",
             safe_text(command.working_directory.as_str(), "."),
             safe_text(command.manifest_path.as_str(), "package.json")
-        ));
+        );
         for removal in &command.removals {
-            output.push_str(&format!(
-                "      remove  {}\n        reason  {}\n",
+            let _ = writeln!(
+                output,
+                "      remove  {}\n        reason  {}",
                 safe_text(&removal.dependency.name, "<invalid dependency>"),
                 safe_text(&removal.reason, "<missing reason>")
-            ));
+            );
         }
-        output.push_str(&format!(
-            "      command  {}\n",
+        let _ = writeln!(
+            output,
+            "      command  {}",
             safe_text(&command.display_command(), "<invalid command>")
-        ));
+        );
     }
     if !apply {
         output.push_str(
@@ -1245,13 +1250,15 @@ fn import_gap_keys(report: &orphanode_core::ScanReport) -> BTreeSet<String> {
         .files
         .iter()
         .flat_map(|file| {
-            file.imports.iter().filter_map(|import| {
-                matches!(
-                    import.status,
-                    ResolutionStatus::Unresolved | ResolutionStatus::Unsupported
-                )
-                .then(|| format!("{}:{}:{:?}", file.path, import.specifier, import.span))
-            })
+            file.imports
+                .iter()
+                .filter(|import| {
+                    matches!(
+                        import.status,
+                        ResolutionStatus::Unresolved | ResolutionStatus::Unsupported
+                    )
+                })
+                .map(|import| format!("{}:{}:{:?}", file.path, import.specifier, import.span))
         })
         .collect()
 }
@@ -1259,49 +1266,52 @@ fn import_gap_keys(report: &orphanode_core::ScanReport) -> BTreeSet<String> {
 fn render_apply_report(output: &mut String, report: &ApplyReport) {
     output.push_str("\nAPPLY\n");
     for execution in &report.package_commands {
-        output.push_str(&format!(
-            "  {}  {}\n",
+        let _ = writeln!(
+            output,
+            "  {}  {}",
             if execution.success { "ok" } else { "failed" },
             safe_text(&execution.command.display_command(), "<invalid command>")
-        ));
+        );
         if !execution.message.is_empty() {
-            output.push_str(&format!(
-                "    {}\n",
+            let _ = writeln!(
+                output,
+                "    {}",
                 safe_text(&execution.message, "<no process output>")
-            ));
+            );
         }
     }
     match &report.revalidation {
         RevalidationOutcome::Passed { notes } => {
             output.push_str("  revalidation  passed\n");
             for note in notes {
-                output.push_str(&format!("    {}\n", safe_text(note, "<empty note>")));
+                let _ = writeln!(output, "    {}", safe_text(note, "<empty note>"));
             }
         }
         RevalidationOutcome::Failed { diagnostics } => {
             output.push_str("  revalidation  failed\n");
             for diagnostic in diagnostics {
-                output.push_str(&format!(
-                    "    {}\n",
+                let _ = writeln!(
+                    output,
+                    "    {}",
                     safe_text(diagnostic, "<empty diagnostic>")
-                ));
+                );
             }
         }
     }
 }
 
 fn run_why(arguments: WhyArgs) -> Result<ExitCode, CliError> {
-    let report = if !uses_explicit_file_universe(&arguments.universe) {
-        let mut request = ProjectScanRequest::new(&arguments.universe.root);
-        request.entries.clone_from(&arguments.universe.entries);
-        scan_project(&request)?
-    } else {
+    let report = if uses_explicit_file_universe(&arguments.universe) {
         let (entries, files) = load_file_universe(&arguments.universe)?;
         scan(&ScanRequest {
             root: arguments.universe.root,
             entries,
             files,
         })?
+    } else {
+        let mut request = ProjectScanRequest::new(&arguments.universe.root);
+        request.entries.clone_from(&arguments.universe.entries);
+        scan_project(&request)?
     };
     let explanation = explain(&report, &arguments.query);
     let exit_code = match explanation.status {
@@ -1318,7 +1328,7 @@ fn run_why(arguments: WhyArgs) -> Result<ExitCode, CliError> {
     Ok(exit_code)
 }
 
-fn run_explain(arguments: ExplainArgs) -> Result<ExitCode, CliError> {
+fn run_explain(arguments: &ExplainArgs) -> Result<ExitCode, CliError> {
     let Some((title, policy)) = issue_description(&arguments.issue_id) else {
         return Err(CliError::InvalidArguments(format!(
             "unknown issue identifier `{}`",
@@ -1338,7 +1348,7 @@ fn run_explain(arguments: ExplainArgs) -> Result<ExitCode, CliError> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn run_config(arguments: ConfigArgs) -> Result<ExitCode, CliError> {
+fn run_config(arguments: &ConfigArgs) -> Result<ExitCode, CliError> {
     let workspace = discover_workspace(&arguments.root)?;
     let configuration = load_orphanode_configuration(&workspace.workspace_root)?;
     let project_configurations = discover_project_configurations(&workspace.workspace_root)?;
@@ -1392,8 +1402,8 @@ fn run_config(arguments: ConfigArgs) -> Result<ExitCode, CliError> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn run_cache(arguments: CacheArgs) -> Result<ExitCode, CliError> {
-    match arguments.command {
+fn run_cache(arguments: &CacheArgs) -> Result<ExitCode, CliError> {
+    match &arguments.command {
         CacheCommand::Clean => {
             let root = arguments
                 .root
@@ -1672,7 +1682,9 @@ impl CliError {
 impl fmt::Display for CliError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidArguments(message) => formatter.write_str(message),
+            Self::InvalidArguments(message) | Self::FixRevalidation(message) => {
+                formatter.write_str(message)
+            }
             Self::ReadManifest { path, source } => {
                 write!(formatter, "cannot read `{}`: {source}", path.display())
             }
@@ -1686,7 +1698,6 @@ impl fmt::Display for CliError {
             Self::Scan(error) => error.fmt(formatter),
             Self::FixPlan(error) => error.fmt(formatter),
             Self::Fix(error) => error.fmt(formatter),
-            Self::FixRevalidation(message) => formatter.write_str(message),
             Self::CacheIo { path, source } => {
                 write!(
                     formatter,
@@ -1703,7 +1714,9 @@ impl fmt::Display for CliError {
 impl Error for CliError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::ReadManifest { source, .. } => Some(source),
+            Self::ReadManifest { source, .. }
+            | Self::CacheIo { source, .. }
+            | Self::WriteOutput(source) => Some(source),
             Self::ParseManifest { source, .. } | Self::Serialize(source) => Some(source),
             Self::Discovery(source) => Some(source),
             Self::Workspace(source) => Some(source),
@@ -1712,8 +1725,6 @@ impl Error for CliError {
             Self::Scan(source) => Some(source),
             Self::FixPlan(source) => Some(source),
             Self::Fix(source) => Some(source),
-            Self::CacheIo { source, .. } => Some(source),
-            Self::WriteOutput(source) => Some(source),
             Self::InvalidArguments(_) | Self::FixRevalidation(_) => None,
         }
     }

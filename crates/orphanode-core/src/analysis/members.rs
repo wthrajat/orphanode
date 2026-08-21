@@ -48,6 +48,10 @@ pub struct MemberId {
     pub scope: MemberScope,
 }
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "these independent flags record distinct runtime member hazards"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MemberHazards {
     pub decorated: bool,
@@ -60,6 +64,10 @@ pub struct MemberHazards {
     pub passed_to_unknown_code: bool,
 }
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "these independent flags preserve the completeness of inheritance facts"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InheritanceFacts {
     pub participates_in_inheritance: bool,
@@ -74,8 +82,9 @@ pub struct InheritanceFacts {
 /// `Resolved` is consulted only when the corresponding core fact is incomplete. This
 /// preserves the invariant that deep mode can add findings, but cannot invalidate a
 /// finding already made by a faster mode from complete facts.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum DeepResolution {
+    #[default]
     NotRequested,
     Unavailable {
         capability_note: String,
@@ -86,12 +95,10 @@ pub enum DeepResolution {
     },
 }
 
-impl Default for DeepResolution {
-    fn default() -> Self {
-        Self::NotRequested
-    }
-}
-
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "the candidate aggregates independent facts supplied by earlier analysis stages"
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberCandidate {
     pub id: MemberId,

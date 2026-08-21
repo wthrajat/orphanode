@@ -1423,7 +1423,7 @@ mod tests {
         project.write("package.json", r#"{"name":"invalid-ignore"}"#);
         project.write(
             "orphanode.jsonc",
-            r#"{"ignore":[{"pattern":"[","reason":"test"}]}"#,
+            r#"{"ignore":[{"pattern":"[z-a]","reason":"test"}]}"#,
         );
 
         assert!(matches!(

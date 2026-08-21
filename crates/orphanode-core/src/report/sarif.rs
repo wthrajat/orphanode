@@ -7,69 +7,7 @@ use crate::domain::report::ScanReport;
 /// Renders a deterministic SARIF 2.1.0 log for code-scanning integrations.
 #[must_use]
 pub fn render_sarif(report: &ScanReport) -> Value {
-    let mut results = Vec::new();
-    for finding in &report.findings {
-        for path in &finding.paths {
-            let mut physical_location = json!({
-                "artifactLocation": { "uri": relative_artifact_uri(path) }
-            });
-            if finding.paths.first() == Some(path)
-                && let Some(span) = finding.span
-            {
-                physical_location["region"] = json!({
-                    "byteOffset": span.start,
-                    "byteLength": span.end.saturating_sub(span.start)
-                });
-            }
-            results.push(json!({
-                "ruleId": finding.issue_id,
-                "level": "warning",
-                "message": { "text": finding.summary },
-                "locations": [{
-                    "physicalLocation": physical_location
-                }],
-                "properties": {
-                    "schemaVersion": report.schema_version,
-                    "workspace": finding.workspace,
-                    "confidence": finding.confidence,
-                    "issueType": finding.issue_type,
-                    "targetProfiles": finding.target_profiles,
-                    "symbol": finding.symbol,
-                    "dependency": finding.dependency,
-                    "evidence": finding.evidence,
-                    "blockers": finding.blockers,
-                    "suggestedActions": finding.suggested_actions,
-                    "fixEligibility": finding.fix_eligibility
-                }
-            }));
-        }
-    }
-    for diagnostic in &report.diagnostics {
-        let mut physical_location = json!({
-            "artifactLocation": {
-                "uri": relative_artifact_uri(&diagnostic.path)
-            }
-        });
-        if let Some(span) = diagnostic.span {
-            physical_location["region"] = json!({
-                "byteOffset": span.start,
-                "byteLength": span.end.saturating_sub(span.start)
-            });
-        }
-        results.push(json!({
-            "ruleId": diagnostic.code,
-            "level": match diagnostic.severity {
-                crate::domain::facts::DiagnosticSeverity::Error => "error",
-                crate::domain::facts::DiagnosticSeverity::Warning => "warning",
-            },
-            "message": { "text": diagnostic.message },
-            "locations": [{ "physicalLocation": physical_location }],
-            "properties": {
-                "blocksReachability": diagnostic.blocks_reachability
-            }
-        }));
-    }
-    results.sort_by(|left, right| sarif_result_key(left).cmp(&sarif_result_key(right)));
+    let results = sarif_results(report);
 
     json!({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
@@ -133,6 +71,73 @@ pub fn render_sarif(report: &ScanReport) -> Value {
             }
         }]
     })
+}
+
+fn sarif_results(report: &ScanReport) -> Vec<Value> {
+    let mut results = Vec::new();
+    for finding in &report.findings {
+        for path in &finding.paths {
+            let mut physical_location = json!({
+                "artifactLocation": { "uri": relative_artifact_uri(path) }
+            });
+            if finding.paths.first() == Some(path)
+                && let Some(span) = finding.span
+            {
+                physical_location["region"] = json!({
+                    "byteOffset": span.start,
+                    "byteLength": span.end.saturating_sub(span.start)
+                });
+            }
+            results.push(json!({
+                "ruleId": finding.issue_id,
+                "level": "warning",
+                "message": { "text": finding.summary },
+                "locations": [{
+                    "physicalLocation": physical_location
+                }],
+                "properties": {
+                    "schemaVersion": report.schema_version,
+                    "workspace": finding.workspace,
+                    "confidence": finding.confidence,
+                    "issueType": finding.issue_type,
+                    "targetProfiles": finding.target_profiles,
+                    "symbol": finding.symbol,
+                    "dependency": finding.dependency,
+                    "evidence": finding.evidence,
+                    "blockers": finding.blockers,
+                    "suggestedActions": finding.suggested_actions,
+                    "fixEligibility": finding.fix_eligibility
+                }
+            }));
+        }
+    }
+    for diagnostic in &report.diagnostics {
+        let mut physical_location = json!({
+            "artifactLocation": {
+                "uri": relative_artifact_uri(&diagnostic.path)
+            }
+        });
+        if let Some(span) = diagnostic.span {
+            physical_location["region"] = json!({
+                "byteOffset": span.start,
+                "byteLength": span.end.saturating_sub(span.start)
+            });
+        }
+        results.push(json!({
+            "ruleId": diagnostic.code,
+            "level": match diagnostic.severity {
+                crate::domain::facts::DiagnosticSeverity::Error => "error",
+                crate::domain::facts::DiagnosticSeverity::Warning => "warning",
+            },
+            "message": { "text": diagnostic.message },
+            "locations": [{ "physicalLocation": physical_location }],
+            "properties": {
+                "blocksReachability": diagnostic.blocks_reachability
+            }
+        }));
+    }
+    results.sort_by_key(sarif_result_key);
+    results
 }
 
 /// Encodes a normalized project-relative path as an RFC 3986 relative URI.

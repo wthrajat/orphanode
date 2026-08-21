@@ -6,6 +6,12 @@ use thiserror::Error;
 use crate::domain::facts::ResolutionMode;
 
 pub trait ModuleResolver {
+    /// Resolves `specifier` from `containing_file` using the requested module mode.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ResolutionFailure`] when the resolver cannot map the specifier
+    /// to a file and the specifier is not a recognized built-in module.
     fn resolve(
         &self,
         containing_file: &Path,

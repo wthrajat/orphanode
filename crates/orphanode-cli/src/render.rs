@@ -34,10 +34,9 @@ enum Style {
 impl Style {
     const fn ansi_code(self) -> &'static str {
         match self {
-            Self::Brand => "1;38;5;214",
+            Self::Brand | Self::Warning => "1;38;5;214",
             Self::Heading => "1",
             Self::Success => "1;32",
-            Self::Warning => "1;38;5;214",
             Self::Error => "1;31",
             Self::Muted => "38;5;245",
         }
@@ -233,7 +232,7 @@ impl Renderer {
                 self.output.push('\n');
             }
             _ => {
-                write!(self.output, " Entries  {} configured\n", entries.len())
+                writeln!(self.output, " Entries  {} configured", entries.len())
                     .expect("writing to a String cannot fail");
                 let visible_count = entries.len().min(3);
                 for (index, entry) in entries.iter().take(visible_count).enumerate() {
@@ -257,9 +256,9 @@ impl Renderer {
                     self.write_styled(self.glyphs.last_branch, Style::Muted);
                     self.output.push(' ');
                     let overflow_marker = if self.options.unicode { "…" } else { "..." };
-                    write!(
+                    writeln!(
                         self.output,
-                        "{overflow_marker} {} more\n",
+                        "{overflow_marker} {} more",
                         entries.len() - visible_count
                     )
                     .expect("writing to a String cannot fail");
@@ -529,7 +528,7 @@ fn sanitize_terminal_text(text: &str) -> String {
     sanitized
 }
 
-const fn is_unsafe_terminal_character(character: char) -> bool {
+fn is_unsafe_terminal_character(character: char) -> bool {
     character.is_control()
         || matches!(
             character,

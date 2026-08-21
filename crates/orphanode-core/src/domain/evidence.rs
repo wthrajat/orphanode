@@ -42,6 +42,12 @@ pub struct EvidenceGraph {
 }
 
 impl EvidenceGraph {
+    /// Adds an evidence node and returns its graph-local identifier.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the graph contains more nodes than can be represented by an
+    /// [`EvidenceId`].
     #[must_use]
     pub fn add_node(
         &mut self,
@@ -65,6 +71,11 @@ impl EvidenceGraph {
         id
     }
 
+    /// Adds a directed edge unless it already exists.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `source` does not identify a node in this graph.
     pub fn add_edge(&mut self, source: EvidenceId, target: EvidenceId) {
         let edges = self
             .outgoing
@@ -117,8 +128,10 @@ impl EvidenceGraph {
             return Vec::new();
         }
         let mut ids = vec![target];
-        while let Some(parent) = previous[ids.last().expect("path has target").index()] {
+        let mut current = target;
+        while let Some(parent) = previous[current.index()] {
             ids.push(parent);
+            current = parent;
         }
         ids.reverse();
         ids.into_iter()

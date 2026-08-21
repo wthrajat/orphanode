@@ -36,6 +36,12 @@ pub struct StringInterner {
 }
 
 impl StringInterner {
+    /// Interns a string and returns its stable identifier.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the interner contains more strings than can be represented by
+    /// an [`InternedStringId`].
     #[must_use]
     pub fn intern(&mut self, value: impl Into<String>) -> InternedStringId {
         let value = value.into();

@@ -285,8 +285,17 @@ pub fn find_nearest_package_manifest(start: &Path) -> Option<PathBuf> {
         if candidate.is_file() {
             return Some(candidate);
         }
+        if is_repository_boundary(directory) {
+            return None;
+        }
         directory = directory.parent()?;
     }
+}
+
+fn is_repository_boundary(directory: &Path) -> bool {
+    [".git", ".hg", ".svn"]
+        .iter()
+        .any(|marker| directory.join(marker).exists())
 }
 
 fn workspace_matcher(root: &Path, patterns: &[String]) -> Result<Gitignore, WorkspaceError> {
@@ -565,7 +574,8 @@ mod tests {
     };
 
     use super::{
-        PackageManager, WorkspacePatternSource, discover_workspace, parse_pnpm_workspace_patterns,
+        PackageManager, WorkspaceError, WorkspacePatternSource, discover_workspace,
+        parse_pnpm_workspace_patterns,
     };
 
     static NEXT_PROJECT_ID: AtomicU64 = AtomicU64::new(0);
@@ -677,6 +687,20 @@ mod tests {
                 .expect("inline packages"),
             ["packages/*", "apps/*"]
         );
+    }
+
+    #[test]
+    fn workspace_search_does_not_escape_a_repository_boundary() {
+        let project = TestProject::new();
+        project.write("package.json", r#"{"name":"unrelated-parent"}"#);
+        project.write("repository/.git/HEAD", "ref: refs/heads/main\n");
+        project.write("repository/fixture/src/index.js", "");
+
+        let fixture = project.path().join("repository/fixture");
+        assert!(matches!(
+            discover_workspace(&fixture),
+            Err(WorkspaceError::MissingControllingManifest(path)) if path == fixture
+        ));
     }
 
     struct TestProject {

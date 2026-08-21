@@ -31,7 +31,7 @@ use crate::{
         facts::{
             Activation, AnalysisDiagnostic, ClassMemberFact, ClassMemberKind,
             ClassMemberVisibility, DiagnosticSeverity, ExportBindingKind, FileFacts,
-            ImportBindingKind, SemanticSymbolId, SourceKind, SourceSpan, UsageKind,
+            ImportBindingKind, SourceKind, SourceSpan, UsageKind,
         },
         graph::{FileGraph, FileId},
         report::{
@@ -192,10 +192,22 @@ impl FactCache {
     }
 }
 
+/// Scans the supplied source-file universe with the default analysis limits.
+///
+/// # Errors
+///
+/// Returns an error when the request is invalid, source or manifest input cannot
+/// be read, a configured limit is exceeded, or the persistent cache fails.
 pub fn scan(request: &ScanRequest) -> Result<ScanReport, ScanError> {
     scan_with_limits(request, AnalysisLimits::default())
 }
 
+/// Scans the supplied source-file universe with explicit analysis limits.
+///
+/// # Errors
+///
+/// Returns an error when the request is invalid, source or manifest input cannot
+/// be read, an analysis limit is exceeded, or the persistent cache fails.
 pub fn scan_with_limits(
     request: &ScanRequest,
     limits: AnalysisLimits,
@@ -381,6 +393,9 @@ fn append_deep_member_decision(
     }
 }
 
+// This is the ordered scan pipeline: keeping its configuration explicit and its
+// stages together makes measurement boundaries and shared state transitions clear.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn scan_internal(
     request: &ScanRequest,
     limits: AnalysisLimits,
@@ -427,6 +442,7 @@ fn scan_internal(
         &prepared_files,
         &mut facts,
         &resolver,
+        target_profiles,
         declared_external_packages.unwrap_or(&manifest.packages),
         workspace_module_targets,
         yarn_pnp,
@@ -668,19 +684,21 @@ fn display_path(root: &Path, physical_path: &Path) -> Result<String, ScanError> 
     Ok(parts.join("/"))
 }
 
+type ParsedFiles = (
+    Vec<FileFacts>,
+    Vec<String>,
+    Option<CacheReport>,
+    ParseMeasurements,
+);
+
+// Cache lookup, bounded parallel parsing, and atomic generation persistence are
+// intentionally kept in one routine so their counters and timings cannot diverge.
+#[allow(clippy::too_many_lines)]
 fn parse_files(
     prepared_files: &[PreparedFile],
     limits: AnalysisLimits,
     cache: Option<&FactCache>,
-) -> Result<
-    (
-        Vec<FileFacts>,
-        Vec<String>,
-        Option<CacheReport>,
-        ParseMeasurements,
-    ),
-    ScanError,
-> {
+) -> Result<ParsedFiles, ScanError> {
     let fact_loading_started = Instant::now();
     let snapshot = cache.map(|cache| cache.store.load()).transpose()?;
     let cache_status = snapshot.as_ref().map(|snapshot| match &snapshot.status {
@@ -1030,11 +1048,15 @@ fn package_manifest_evidence(root: &Path) -> Result<PackageManifestEvidence, Sca
     })
 }
 
+// Import resolution updates diagnostics, graph edges, and report rows together;
+// splitting those mutations would make their one-to-one correspondence fragile.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn resolve_imports(
     root: &Path,
     prepared_files: &[PreparedFile],
     facts: &mut [FileFacts],
     resolver: &dyn ModuleResolver,
+    target_profiles: &[String],
     external_packages: &BTreeSet<String>,
     workspace_module_targets: &[WorkspaceModuleTarget],
     yarn_pnp: bool,
@@ -1049,7 +1071,7 @@ fn resolve_imports(
     let ids_by_display_path = facts
         .iter()
         .enumerate()
-        .map(|(index, facts)| (facts.path.as_str(), FileId(index)))
+        .map(|(index, facts)| (facts.path.clone(), FileId(index)))
         .collect::<BTreeMap<_, _>>();
 
     for file_index in 0..prepared_files.len() {
@@ -1118,9 +1140,8 @@ fn resolve_imports(
                     {
                         (ResolutionStatus::External, None)
                     }
-                    Ok(ModuleResolution::File(resolved_path)) => match resolved_path.canonicalize()
-                    {
-                        Ok(physical_target) => {
+                    Ok(ModuleResolution::File(resolved_path)) => {
+                        if let Ok(physical_target) = resolved_path.canonicalize() {
                             if let Some(target_id) = ids_by_path.get(&physical_target).copied() {
                                 graph.add_edge(FileId(file_index), target_id);
                                 (
@@ -1159,8 +1180,7 @@ fn resolve_imports(
                                     ));
                                 (ResolutionStatus::Unresolved, None)
                             }
-                        }
-                        Err(_) => {
+                        } else {
                             facts[file_index].diagnostics.push(unresolved_diagnostic(
                                 &source_path,
                                 &import.specifier,
@@ -1169,7 +1189,7 @@ fn resolve_imports(
                             ));
                             (ResolutionStatus::Unresolved, None)
                         }
-                    },
+                    }
                     Err(_) => {
                         if workspace_package.is_some() {
                             facts[file_index].diagnostics.push(unresolved_diagnostic(
@@ -1254,11 +1274,18 @@ fn add_additional_file_edges(
     }
     for file_imports in imports {
         file_imports.sort_by(|left, right| {
-            (&left.specifier, left.span.start, &left.target).cmp(&(
-                &right.specifier,
-                right.span.start,
-                &right.target,
-            ))
+            (
+                left.span.start,
+                left.span.end,
+                &left.specifier,
+                &left.target,
+            )
+                .cmp(&(
+                    right.span.start,
+                    right.span.end,
+                    &right.specifier,
+                    &right.target,
+                ))
         });
     }
 }
@@ -1650,67 +1677,8 @@ fn build_symbol_findings(
     links: &[ResolvedSymbolLink],
     analysis: &SymbolAnalysisResult,
 ) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    let consumed_exports = links
-        .iter()
-        .map(|link| (link.target, link.target_usage))
-        .collect::<BTreeSet<_>>();
-
-    for (file, file_facts) in facts.iter().enumerate() {
-        if !reachable.get(file).copied().unwrap_or(false)
-            || open_world_files.get(file).copied().unwrap_or(false)
-            || !analysis
-                .files
-                .get(file)
-                .is_some_and(|state| state.exports_complete)
-        {
-            continue;
-        }
-        for export in &file_facts.symbol_facts.exports {
-            let Some(local) = export.local else {
-                continue;
-            };
-            let usage = if export.type_only {
-                UsageKind::Type
-            } else {
-                UsageKind::Runtime
-            };
-            if consumed_exports.contains(&(
-                SymbolKey {
-                    file,
-                    symbol: local,
-                },
-                usage,
-            )) {
-                continue;
-            }
-            findings.push(Finding {
-                issue_id: "ORP1002",
-                issue_type: "unusedExport",
-                workspace: ".".to_owned(),
-                target_profiles: vec!["default".to_owned()],
-                paths: vec![file_facts.path.clone()],
-                span: Some(export.span),
-                symbol: Some(export.exported.clone()),
-                dependency: None,
-                confidence: Confidence::High,
-                summary: format!(
-                    "export {} from {} has no live consumer",
-                    export.exported, file_facts.path
-                ),
-                evidence: vec![
-                    "No resolved import or re-export reaches this export binding".to_owned(),
-                    "The package is analyzed as closed world for this entry".to_owned(),
-                ],
-                blockers: Vec::new(),
-                suggested_actions: vec![
-                    "Review the public contract and request a fix preview before editing"
-                        .to_owned(),
-                ],
-                fix_eligibility: FixEligibility::PreviewOnly,
-            });
-        }
-    }
+    let mut findings =
+        build_unused_export_findings(facts, reachable, open_world_files, links, analysis);
 
     for group in &analysis.dead_groups {
         let mut members = group
@@ -1785,6 +1753,78 @@ fn build_symbol_findings(
             fix_eligibility: FixEligibility::PreviewOnly,
         });
     }
+    findings
+}
+
+fn build_unused_export_findings(
+    facts: &[FileFacts],
+    reachable: &[bool],
+    open_world_files: &[bool],
+    links: &[ResolvedSymbolLink],
+    analysis: &SymbolAnalysisResult,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let consumed_exports = links
+        .iter()
+        .map(|link| (link.target, link.target_usage))
+        .collect::<BTreeSet<_>>();
+
+    for (file, file_facts) in facts.iter().enumerate() {
+        if !reachable.get(file).copied().unwrap_or(false)
+            || open_world_files.get(file).copied().unwrap_or(false)
+            || !analysis
+                .files
+                .get(file)
+                .is_some_and(|state| state.exports_complete)
+        {
+            continue;
+        }
+        for export in &file_facts.symbol_facts.exports {
+            let Some(local) = export.local else {
+                continue;
+            };
+            let usage = if export.type_only {
+                UsageKind::Type
+            } else {
+                UsageKind::Runtime
+            };
+            if consumed_exports.contains(&(
+                SymbolKey {
+                    file,
+                    symbol: local,
+                },
+                usage,
+            )) {
+                continue;
+            }
+            findings.push(Finding {
+                issue_id: "ORP1002",
+                issue_type: "unusedExport",
+                workspace: ".".to_owned(),
+                target_profiles: vec!["default".to_owned()],
+                paths: vec![file_facts.path.clone()],
+                span: Some(export.span),
+                symbol: Some(export.exported.clone()),
+                dependency: None,
+                confidence: Confidence::High,
+                summary: format!(
+                    "export {} from {} has no live consumer",
+                    export.exported, file_facts.path
+                ),
+                evidence: vec![
+                    "No resolved import or re-export reaches this export binding".to_owned(),
+                    "The package is analyzed as closed world for this entry".to_owned(),
+                ],
+                blockers: Vec::new(),
+                suggested_actions: vec![
+                    "Review the public contract and request a fix preview before editing"
+                        .to_owned(),
+                ],
+                fix_eligibility: FixEligibility::PreviewOnly,
+            });
+        }
+    }
+
     findings
 }
 
@@ -2043,7 +2083,7 @@ fn member_deferral_reason(reason: crate::analysis::members::DeferralReason) -> &
     }
 }
 
-fn sort_findings(findings: &mut Vec<Finding>) {
+fn sort_findings(findings: &mut [Finding]) {
     findings.sort_by(|left, right| {
         (
             &left.workspace,
