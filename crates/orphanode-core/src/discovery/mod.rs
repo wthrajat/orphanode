@@ -137,8 +137,7 @@ fn discover_source_files_internal(
                 && !entry
                     .path()
                     .strip_prefix(&filter_root)
-                    .ok()
-                    .is_some_and(|relative| excluded_package_roots.contains(relative))
+                    .is_ok_and(|relative| excluded_package_roots.contains(relative))
         });
 
     let mut source_files = BTreeSet::new();

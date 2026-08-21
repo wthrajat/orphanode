@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
 use oxc_resolver::{ResolveError, ResolveOptions, Resolver, TsconfigDiscovery};
 use thiserror::Error;
@@ -101,7 +104,8 @@ impl ModuleResolver for OxcModuleResolver {
             ResolutionMode::Esm => &self.esm,
             ResolutionMode::CommonJs => &self.common_js,
         };
-        match resolver.resolve_file(containing_file, specifier) {
+        let containing_file = resolver_input_path(containing_file);
+        match resolver.resolve_file(containing_file.as_ref(), specifier) {
             Ok(resolution) => Ok(ModuleResolution::File(resolution.into_path_buf())),
             Err(ResolveError::Builtin { .. }) => Ok(ModuleResolution::External),
             Err(error) => Err(ResolutionFailure {
@@ -109,6 +113,44 @@ impl ModuleResolver for OxcModuleResolver {
             }),
         }
     }
+}
+
+#[cfg(windows)]
+fn resolver_input_path(path: &Path) -> Cow<'_, Path> {
+    windows_compatible_path(path)
+}
+
+#[cfg(not(windows))]
+fn resolver_input_path(path: &Path) -> Cow<'_, Path> {
+    Cow::Borrowed(path)
+}
+
+// `std::fs::canonicalize` returns verbatim paths on Windows. Oxc parses its
+// importer path as a module specifier, where the `?` in that prefix would be
+// interpreted as the beginning of a resource query.
+#[cfg(any(windows, test))]
+fn windows_compatible_path(path: &Path) -> Cow<'_, Path> {
+    let Some(path_text) = path.to_str() else {
+        return Cow::Borrowed(path);
+    };
+
+    let network_path = path_text
+        .strip_prefix(r"\\?\UNC\")
+        .or_else(|| path_text.strip_prefix(r"\\.\UNC\"));
+    if let Some(network_path) = network_path {
+        return Cow::Owned(PathBuf::from(format!(r"\\{network_path}")));
+    }
+
+    let disk_path = path_text
+        .strip_prefix(r"\\?\")
+        .or_else(|| path_text.strip_prefix(r"\\.\"));
+    if let Some(disk_path) = disk_path
+        && disk_path.as_bytes().get(1) == Some(&b':')
+    {
+        return Cow::Owned(PathBuf::from(disk_path));
+    }
+
+    Cow::Borrowed(path)
 }
 
 #[must_use]
@@ -165,7 +207,7 @@ fn options_for(
 mod tests {
     use std::path::Path;
 
-    use super::{OxcModuleResolver, is_relative, options_for};
+    use super::{OxcModuleResolver, is_relative, options_for, windows_compatible_path};
 
     #[test]
     fn classifies_only_relative_specifiers() {
@@ -209,5 +251,23 @@ mod tests {
         );
 
         assert_eq!(options.cwd, None);
+    }
+
+    #[test]
+    fn windows_verbatim_paths_are_safe_for_resolver_specifier_parsing() {
+        assert_eq!(
+            windows_compatible_path(Path::new(r"\\?\C:\workspace\src\index.ts")),
+            Path::new(r"C:\workspace\src\index.ts")
+        );
+        assert_eq!(
+            windows_compatible_path(Path::new(r"\\?\UNC\server\share\src\index.ts")),
+            Path::new(r"\\server\share\src\index.ts")
+        );
+        assert_eq!(
+            windows_compatible_path(Path::new(
+                r"\\?\Volume{c8ec34d8-3ba6-45c3-9b9d-3e4148e12d00}\index.ts"
+            )),
+            Path::new(r"\\?\Volume{c8ec34d8-3ba6-45c3-9b9d-3e4148e12d00}\index.ts")
+        );
     }
 }

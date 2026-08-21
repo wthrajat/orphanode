@@ -25,7 +25,7 @@ impl Digest {
         }
 
         let mut bytes = [0_u8; DIGEST_BYTES];
-        for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
             let high = decode_nibble(pair[0]).ok_or(DigestParseError)?;
             let low = decode_nibble(pair[1]).ok_or(DigestParseError)?;
             bytes[index] = (high << 4) | low;
@@ -111,7 +111,7 @@ fn sha256(input: &[u8]) -> [u8; DIGEST_BYTES] {
     padded.resize(padded_len - 8, 0);
     padded.extend_from_slice(&bit_len.to_be_bytes());
 
-    for chunk in padded.chunks_exact(64) {
+    for chunk in padded.as_chunks::<64>().0 {
         compress(&mut state, chunk);
     }
 
@@ -122,9 +122,9 @@ fn sha256(input: &[u8]) -> [u8; DIGEST_BYTES] {
     output
 }
 
-fn compress(state: &mut [u32; 8], chunk: &[u8]) {
+fn compress(state: &mut [u32; 8], chunk: &[u8; 64]) {
     let mut schedule = [0_u32; 64];
-    for (index, word) in chunk.chunks_exact(4).enumerate() {
+    for (index, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
         schedule[index] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
     }
     for index in 16..64 {
