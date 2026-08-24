@@ -38,7 +38,7 @@ use orphanode_core::{
 };
 use serde::Deserialize;
 
-use crate::render::{RenderOptions, render_human, safe_text};
+use crate::render::{RenderOptions, render_compact, render_human, safe_text};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -79,6 +79,11 @@ struct ScanArgs {
     /// Output presentation. Human is designed for terminals; JSON and SARIF are stable for tools.
     #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
     format: OutputFormat,
+
+    /// Include findings whose paths are test files. Tests always stay in the
+    /// reachability graph; this only controls whether they are reported.
+    #[arg(long)]
+    report_tests: bool,
 
     /// Color policy for human output. `NO_COLOR` is honored in auto mode.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
@@ -225,6 +230,8 @@ enum CacheCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum OutputFormat {
     Human,
+    /// One ts-prune-style line per finding: `path:line:col - CODE 'name' is unused`.
+    Compact,
     Json,
     Sarif,
 }
@@ -481,6 +488,7 @@ fn run_scan(arguments: &ScanArgs) -> Result<ExitCode, CliError> {
                 unicode: should_use_unicode(arguments.ascii),
             },
         ),
+        OutputFormat::Compact => render_compact(&report, &arguments.universe.root),
         OutputFormat::Json if arguments.pretty => serde_json::to_string_pretty(&report)?,
         OutputFormat::Json => serde_json::to_string(&report)?,
         OutputFormat::Sarif if arguments.pretty => {
@@ -1052,6 +1060,7 @@ fn project_request_from_arguments(arguments: &ScanArgs) -> ProjectScanRequest {
     };
     request.target_profiles.clone_from(&arguments.targets);
     request.issues = selected_issues(&arguments.issues);
+    request.report_tests = arguments.report_tests;
     request
 }
 

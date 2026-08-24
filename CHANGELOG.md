@@ -39,6 +39,10 @@ Notable changes to OrphaNode are recorded here. The project follows
 
 - NestJS joins the built-in framework plugins with `src/main.*` and
   `apps/*/src/main.*` entry conventions.
+- `--format compact` renders one ts-prune-style line per finding with
+  `path:line:column - CODE 'name' is unused`.
+- Test files stay in the reachability graph but are no longer reported by
+  default; pass `--report-tests` to include findings about them.
 
 - Project scans now treat imports that resolve into paths excluded by the
   discovery policy, such as ignored generated code or nested workspace

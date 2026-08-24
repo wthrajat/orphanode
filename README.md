@@ -98,7 +98,7 @@ orphanode scan [OPTIONS]
 | `--target PROFILE` | Select built-in or configured target profiles. Repeat it or use commas. |
 | `--closed-world` | Treat public packages as closed world for this scan. |
 | `--open-world` | Treat private packages as open world for this scan. |
-| `--format FORMAT` | Output `human`, `json`, or `sarif`. |
+| `--format FORMAT` | Output `human`, `compact`, `json`, or `sarif`. |
 | `--color WHEN` | Use `auto`, `always`, or `never` color in human output. |
 | `--ascii` | Use ASCII instead of Unicode drawing characters. |
 | `--pretty` | Pretty-print JSON or SARIF. |
@@ -110,6 +110,7 @@ orphanode scan [OPTIONS]
 | `--fix-dependency NAME` | Select a dependency. Use `WORKSPACE:NAME` when ambiguous; requires `--fix`. |
 | `--file PATH` | Add a file to an exact, caller-owned source universe. Repeat as needed. |
 | `--files-from PATH` | Read an exact source universe from a JSON manifest. |
+| `--report-tests` | Also report findings whose paths are test files. Tests always stay in the reachability graph as roots; by default they are analyzed but not reported. |
 
 Without `--file` or `--files-from`, `scan` uses full project discovery. Adding
 `--entry` changes only the roots; discovery still handles the rest of the
@@ -264,9 +265,17 @@ Fixes currently require human output.
 
 ## Output and exit codes
 
-Human output is designed for terminals and honors `NO_COLOR`. JSON uses the
-versioned [`scan-report-v0.2` schema](schemas/scan-report-v0.2.schema.json).
-SARIF 2.1.0 is available for code-scanning tools.
+Human output is designed for terminals and honors `NO_COLOR`. `compact` prints
+one ts-prune-style line per finding, `path:line:column - CODE 'name' is unused`,
+for quick reading and grepping. JSON uses the versioned
+[`scan-report-v0.2` schema](schemas/scan-report-v0.2.schema.json). SARIF 2.1.0
+is available for code-scanning tools.
+
+A ts-prune-like unused-export report is:
+
+```sh
+orphanode scan --issues exports --format compact
+```
 
 | Exit code | Meaning |
 | ---: | --- |

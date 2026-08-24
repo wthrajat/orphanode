@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, fmt::Write as _};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt::Write as _,
+    path::Path,
+};
 
 use orphanode_core::{
     ScanReport,
@@ -19,6 +23,66 @@ pub struct RenderOptions {
 #[must_use]
 pub fn render_human(report: &ScanReport, options: RenderOptions) -> String {
     Renderer::new(options).render(report)
+}
+
+/// Renders one ts-prune-style line per finding:
+/// `path:line:column - CODE 'name' is unused`.
+#[must_use]
+pub fn render_compact(report: &ScanReport, root: &Path) -> String {
+    let mut sources = HashMap::new();
+    let mut output = String::new();
+    for finding in &report.findings {
+        let name = finding
+            .symbol
+            .as_deref()
+            .or(finding.dependency.as_deref())
+            .unwrap_or(finding.issue_type);
+        for path in &finding.paths {
+            let position = if finding.paths.len() == 1 {
+                finding
+                    .span
+                    .map(|span| source_position(&mut sources, root, path, span.start))
+                    .map_or_else(String::new, |(line, column)| format!(":{line}:{column}"))
+            } else {
+                String::new()
+            };
+            let _ = writeln!(
+                output,
+                "{path}{position} - {} '{name}' is unused",
+                finding.issue_id
+            );
+        }
+    }
+    output
+}
+
+fn source_position(
+    sources: &mut HashMap<String, Vec<u8>>,
+    root: &Path,
+    path: &str,
+    offset: u32,
+) -> (u32, u32) {
+    let bytes = sources
+        .entry(path.to_owned())
+        .or_insert_with(|| std::fs::read(root.join(path)).unwrap_or_default());
+    if bytes.is_empty() {
+        return (0, 0);
+    }
+    let offset = (offset as usize).min(bytes.len());
+    let before = &bytes[..offset];
+    // A one-shot line count over one small source file does not warrant a
+    // SIMD byte-count dependency.
+    #[allow(clippy::naive_bytecount)]
+    let newlines = before.iter().filter(|byte| **byte == b'\n').count();
+    let line = 1 + u32::try_from(newlines).unwrap_or(u32::MAX);
+    let line_start = before
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |position| position + 1);
+    let column = std::str::from_utf8(&before[line_start..])
+        .map_or(before.len() - line_start, |text| text.chars().count())
+        + 1;
+    (line, u32::try_from(column).unwrap_or(u32::MAX))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -552,7 +616,9 @@ mod tests {
         },
     };
 
-    use super::{RenderOptions, render_human};
+    use std::path::Path;
+
+    use super::{RenderOptions, render_compact, render_human};
 
     #[test]
     fn colorless_output_contains_no_ansi_sequences() {
@@ -583,6 +649,52 @@ mod tests {
         assert!(output.contains("|- src/unused.ts"));
         assert!(output.contains("`- src/legacy.ts"));
         assert!(output.contains("! WARNING"));
+    }
+
+    #[test]
+    fn compact_output_uses_ts_prune_style_positions() {
+        let temporary =
+            std::env::temp_dir().join(format!("orphanode-render-compact-{}", std::process::id()));
+        std::fs::create_dir_all(temporary.join("src")).expect("create temp project");
+        let source = "export const alpha = 1;\nexport const beta = 2;\n";
+        std::fs::write(temporary.join("src/one.ts"), source).expect("write temp source");
+
+        let mut report = sample_report();
+        report.findings = vec![UnusedFilesFinding {
+            issue_id: "ORP1002",
+            issue_type: "unusedExport",
+            workspace: ".".to_owned(),
+            target_profiles: vec!["default".to_owned()],
+            paths: vec!["src/one.ts".to_owned()],
+            span: Some(SourceSpan::new(
+                u32::try_from(source.find("beta").unwrap()).unwrap_or(0),
+                20,
+            )),
+            symbol: Some("beta".to_owned()),
+            dependency: None,
+            confidence: Confidence::High,
+            summary: "unused export".to_owned(),
+            evidence: Vec::new(),
+            blockers: Vec::new(),
+            suggested_actions: Vec::new(),
+            fix_eligibility: FixEligibility::NotAvailable,
+        }];
+
+        let output = render_compact(&report, &temporary);
+
+        assert_eq!(output, "src/one.ts:2:14 - ORP1002 'beta' is unused\n");
+        std::fs::remove_dir_all(&temporary).expect("cleanup temp project");
+    }
+
+    #[test]
+    fn compact_multi_path_groups_list_every_path_without_positions() {
+        let report = sample_report();
+
+        let output = render_compact(&report, Path::new("/nonexistent"));
+
+        assert!(output.contains("src/unused.ts - ORP1001 'unused_files' is unused"));
+        assert!(output.contains("src/legacy.ts - ORP1001 'unused_files' is unused"));
+        assert!(!output.contains(':'));
     }
 
     #[test]

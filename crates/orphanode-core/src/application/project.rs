@@ -105,6 +105,9 @@ pub struct ProjectScanRequest {
     pub target_profiles: Vec<String>,
     pub issues: BTreeSet<AnalysisIssue>,
     pub limits: AnalysisLimits,
+    /// Report findings whose paths are test files. Tests always stay in the
+    /// reachability graph as roots; this only hides findings about them.
+    pub report_tests: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -161,6 +164,7 @@ impl ProjectScanRequest {
             target_profiles: default_target_profiles(),
             issues: AnalysisIssue::all(),
             limits: AnalysisLimits::default(),
+            report_tests: false,
         }
     }
 }
@@ -648,6 +652,11 @@ pub fn scan_project_measured(
         "unusedWorkspace" => request.issues.contains(&AnalysisIssue::Workspaces),
         _ => true,
     });
+    if !request.report_tests {
+        report
+            .findings
+            .retain(|finding| !finding.paths.iter().any(|path| is_test_path(path)));
+    }
     sort_findings(&mut report.findings);
     report.project = Some(ProjectReport {
         mode: project_mode_name(&contexts),
@@ -4337,6 +4346,29 @@ fn union_target_profiles(left_message: &str, right_message: &str) -> String {
         .join(", ")
 }
 
+// Test conventions follow common runner defaults: Jest, Vitest, Node's test
+// runner, Playwright, and Storybook all use these file or directory names.
+fn is_test_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    let file_name = normalized.rsplit('/').next().unwrap_or(&normalized);
+    let extension = [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"]
+        .iter()
+        .find_map(|extension| file_name.strip_suffix(extension));
+    let stem = extension.unwrap_or(file_name);
+    let test_file_name = ["test", "spec"].contains(&stem)
+        || [".test", ".spec", ".e2e-spec", ".stories"]
+            .iter()
+            .any(|marker| stem.ends_with(marker))
+        || stem.ends_with("_test");
+    let in_test_directory = normalized.split('/').any(|segment| {
+        matches!(
+            segment,
+            "__tests__" | "__mocks__" | "test" | "tests" | "e2e"
+        )
+    });
+    test_file_name || in_test_directory
+}
+
 fn sort_findings(findings: &mut [Finding]) {
     findings.sort_by(|left, right| {
         (
@@ -4381,8 +4413,8 @@ mod tests {
     use super::{
         AnalysisIssue, DeepOverrideRelationship, DeepRawResolution, DeepSourceSpan,
         DeepSymbolIdentity, append_file_transform_edges, collect_static_config_packages,
-        deep_cache_key, has_yarn_pnp_manifest, map_entry_to_source, merge_duplicate_diagnostics,
-        resolve_deep_raw_resolution, source_variants,
+        deep_cache_key, has_yarn_pnp_manifest, is_test_path, map_entry_to_source,
+        merge_duplicate_diagnostics, resolve_deep_raw_resolution, source_variants,
     };
     use crate::discovery::configuration::{ProjectConfiguration, ProjectConfigurationKind};
     use crate::{
@@ -4391,6 +4423,33 @@ mod tests {
         domain::facts::{AnalysisDiagnostic, DiagnosticSeverity, SourceSpan},
         plugins::FileTransformContribution,
     };
+
+    #[test]
+    fn test_paths_follow_common_runner_conventions() {
+        for path in [
+            "src/service.test.ts",
+            "src/service.test.js",
+            "src/service.spec.tsx",
+            "apps/backend/test/app.e2e-spec.ts",
+            "tests/helpers/setup.ts",
+            "test/jest.setup.ts",
+            "components/__tests__/button.tsx",
+            "stories/Button.stories.ts",
+            "e2e/login.ts",
+        ] {
+            assert!(is_test_path(path), "`{path}` should be a test path");
+        }
+        for path in [
+            "src/service.ts",
+            "src/contest.ts",
+            "lib/latest.ts",
+            "src/testing.ts",
+            "src/specification.ts",
+            "src/main.mts",
+        ] {
+            assert!(!is_test_path(path), "`{path}` should not be a test path");
+        }
+    }
 
     #[test]
     fn all_issue_selection_contains_every_public_rule_family() {
