@@ -3,12 +3,13 @@ use std::{collections::HashMap, path::Path};
 use oxc_allocator::Allocator;
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
-    AccessorProperty, Argument, AssignmentExpression, AssignmentOperator, CallExpression, Class,
-    ClassElement, ExportAllDeclaration, ExportDeclaration, ExportDefaultDeclaration,
-    ExportDefaultDeclarationKind, ExportFromDeclaration, ExportNamedDeclaration, Expression,
-    ImportDeclaration, ImportDeclarationSpecifier, ImportExpression, MemberExpression,
-    MethodDefinitionKind, ModuleExportName, NewExpression, PropertyDefinition, TSAccessibility,
-    VariableDeclarator, WithStatement,
+    AccessorProperty, Argument, AssignmentExpression, AssignmentOperator, BindingIdentifier,
+    CallExpression, Class, ClassElement, Declaration, ExportAllDeclaration, ExportDeclaration,
+    ExportDefaultDeclaration, ExportDefaultDeclarationKind, ExportFromDeclaration,
+    ExportNamedDeclaration, Expression, FormalParameter, ImportDeclaration,
+    ImportDeclarationSpecifier, ImportExpression, MemberExpression, MethodDefinitionKind,
+    ModuleExportName, NewExpression, PropertyDefinition, TSAccessibility, VariableDeclarator,
+    WithStatement,
 };
 use oxc_ast_visit::{Visit, walk as visit};
 use oxc_ecmascript::BoundNames;
@@ -200,6 +201,7 @@ struct FactCollector<'s, 'a> {
     pending_regions: Vec<PendingRegion>,
     pending_guards: Vec<PendingGuard>,
     deferred_region_depth: usize,
+    parameter_property_spans: Vec<SourceSpan>,
     dynamic_scope_depth: usize,
     unknown_computed_member_access: bool,
     limits: AnalysisLimits,
@@ -240,6 +242,7 @@ impl<'s, 'a> FactCollector<'s, 'a> {
             pending_regions: Vec::new(),
             pending_guards: Vec::new(),
             deferred_region_depth: 0,
+            parameter_property_spans: Vec::new(),
             dynamic_scope_depth: 0,
             unknown_computed_member_access: false,
             limits,
@@ -531,6 +534,24 @@ impl<'s, 'a> FactCollector<'s, 'a> {
         reference.symbol_id().map(lower_symbol_id)
     }
 
+    fn push_local_export(&mut self, identifier: &BindingIdentifier<'a>, type_only: bool) {
+        self.exports.push(ExportFact {
+            name: identifier.name.to_string(),
+            kind: ExportKind::Named,
+            type_only,
+            span: identifier.span.into(),
+        });
+        self.symbol_facts.exports.push(ExportBindingFact {
+            exported: identifier.name.to_string(),
+            source: None,
+            imported: None,
+            local: Some(lower_symbol_id(identifier.symbol_id())),
+            kind: ExportBindingKind::Local,
+            type_only,
+            span: identifier.span.into(),
+        });
+    }
+
     fn resolved_expression_symbol(&self, expression: &Expression<'a>) -> Option<SemanticSymbolId> {
         let Expression::Identifier(identifier) = expression else {
             return None;
@@ -621,6 +642,11 @@ impl<'s, 'a> FactCollector<'s, 'a> {
             let declaration_scope = nodes.get_node(declaration_node).scope_id();
             let kind = declaration_kind(oxc_flags);
             let namespace = symbol_namespace(oxc_flags);
+            let symbol_span = scoping.symbol_span(symbol_id);
+            let parameter_property = self
+                .parameter_property_spans
+                .iter()
+                .any(|span| span.start <= symbol_span.start && symbol_span.end <= span.end);
             let mut declarations = scoping
                 .symbol_declarations(symbol_id)
                 .map(|node_id| SourceSpan::from(nodes.kind(node_id).span()))
@@ -643,6 +669,7 @@ impl<'s, 'a> FactCollector<'s, 'a> {
                     initializer_effectful,
                     ambient: oxc_flags.is_ambient(),
                     safe_removal_span,
+                    parameter_property,
                     ..SymbolFactFlags::default()
                 },
             });
@@ -902,6 +929,17 @@ impl<'a> Visit<'a> for FactCollector<'_, 'a> {
         visit::walk_class(self, class);
     }
 
+    fn visit_formal_parameter(&mut self, parameter: &FormalParameter<'a>) {
+        // TypeScript parameter properties become class fields. Their only
+        // runtime uses are `this.<name>` member reads, which are not resolved
+        // identifier references, so record the declaration for conservative
+        // retention instead of trusting the empty reference set.
+        if parameter.accessibility.is_some() || parameter.readonly || parameter.r#override {
+            self.parameter_property_spans.push(parameter.span.into());
+        }
+        visit::walk_formal_parameter(self, parameter);
+    }
+
     fn visit_member_expression(&mut self, expression: &MemberExpression<'a>) {
         if matches!(expression, MemberExpression::ComputedMemberExpression(_))
             && expression.static_property_name().is_none()
@@ -1043,24 +1081,26 @@ impl<'a> Visit<'a> for FactCollector<'_, 'a> {
     }
 
     fn visit_export_declaration(&mut self, declaration: &ExportDeclaration<'a>) {
-        let type_only = declaration.export_kind().is_type();
-        declaration.declaration.bound_names(&mut |identifier| {
-            self.exports.push(ExportFact {
-                name: identifier.name.to_string(),
-                kind: ExportKind::Named,
-                type_only,
-                span: identifier.span.into(),
-            });
-            self.symbol_facts.exports.push(ExportBindingFact {
-                exported: identifier.name.to_string(),
-                source: None,
-                imported: None,
-                local: Some(lower_symbol_id(identifier.symbol_id())),
-                kind: ExportBindingKind::Local,
-                type_only,
-                span: identifier.span.into(),
-            });
-        });
+        // `BoundNames` models ECMAScript bindings and silently skips
+        // TypeScript declarations, which would hide exported type aliases,
+        // interfaces, and enums from the module contract entirely.
+        match &declaration.declaration {
+            Declaration::TSTypeAliasDeclaration(alias) => {
+                self.push_local_export(&alias.id, true);
+            }
+            Declaration::TSInterfaceDeclaration(interface) => {
+                self.push_local_export(&interface.id, true);
+            }
+            Declaration::TSEnumDeclaration(enum_declaration) => {
+                self.push_local_export(&enum_declaration.id, declaration.export_kind().is_type());
+            }
+            _ => {
+                let type_only = declaration.export_kind().is_type();
+                declaration.declaration.bound_names(&mut |identifier| {
+                    self.push_local_export(identifier, type_only);
+                });
+            }
+        }
 
         visit::walk_export_declaration(self, declaration);
     }
@@ -1701,6 +1741,68 @@ mod tests {
         );
 
         assert!(facts.imports.is_empty());
+    }
+
+    #[test]
+    fn exported_typescript_declarations_become_module_exports() {
+        let facts = parse_file(
+            "src/types.ts",
+            Path::new("src/types.ts"),
+            r"
+            export type VerifyMessage = { channel: string };
+            export interface NodeInfo { pubkey: string }
+            export enum ChannelKind { Open = 'OPEN' }
+            ",
+        );
+
+        let names = facts
+            .exports
+            .iter()
+            .map(|export| export.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["VerifyMessage", "NodeInfo", "ChannelKind"]);
+        let channel_kind = facts
+            .exports
+            .iter()
+            .find(|export| export.name == "ChannelKind")
+            .expect("ChannelKind export");
+        assert!(!channel_kind.type_only);
+        assert!(
+            facts
+                .exports
+                .iter()
+                .filter(|export| export.name != "ChannelKind")
+                .all(|export| export.type_only)
+        );
+        assert_eq!(facts.symbol_facts.exports.len(), 3);
+    }
+
+    #[test]
+    fn constructor_parameter_properties_are_marked_for_conservative_retention() {
+        let facts = parse_file(
+            "src/service.ts",
+            Path::new("src/service.ts"),
+            r"
+            class Service {
+                constructor(private prisma: Prisma, private readonly unused: Logger) {
+                    this.prisma.find();
+                }
+            }
+            ",
+        );
+        let symbols = &facts.symbol_facts.symbols;
+        let prisma = symbols
+            .iter()
+            .find(|symbol| symbol.name == "prisma")
+            .expect("prisma parameter property");
+        let unused = symbols
+            .iter()
+            .find(|symbol| symbol.name == "unused")
+            .expect("unused parameter property");
+
+        assert!(prisma.flags.parameter_property);
+        assert!(unused.flags.parameter_property);
     }
 
     #[test]

@@ -225,6 +225,7 @@ pub fn scan_with_limits(
         None,
         &[],
         false,
+        SourceUniverseKind::Explicit,
     )
     .map(|(report, _)| report)
 }
@@ -243,6 +244,7 @@ pub(crate) fn scan_with_fact_cache_measured(
     declared_external_packages: Option<&BTreeSet<String>>,
     workspace_module_targets: &[WorkspaceModuleTarget],
     yarn_pnp: bool,
+    universe_kind: SourceUniverseKind,
 ) -> Result<(ScanReport, ScanStageMetrics), ScanError> {
     scan_internal(
         request,
@@ -257,6 +259,7 @@ pub(crate) fn scan_with_fact_cache_measured(
         declared_external_packages,
         workspace_module_targets,
         yarn_pnp,
+        universe_kind,
     )
 }
 
@@ -409,6 +412,7 @@ fn scan_internal(
     declared_external_packages: Option<&BTreeSet<String>>,
     workspace_module_targets: &[WorkspaceModuleTarget],
     yarn_pnp: bool,
+    universe_kind: SourceUniverseKind,
 ) -> Result<(ScanReport, ScanStageMetrics), ScanError> {
     let mut measurements = ScanStageMetrics::default();
     let root = canonical_root(&request.root)?;
@@ -446,6 +450,7 @@ fn scan_internal(
         declared_external_packages.unwrap_or(&manifest.packages),
         workspace_module_targets,
         yarn_pnp,
+        universe_kind,
     );
     add_additional_file_edges(&mut graph, &mut imports, &facts, additional_file_edges);
     graph.finish();
@@ -1048,6 +1053,17 @@ fn package_manifest_evidence(root: &Path) -> Result<PackageManifestEvidence, Sca
     })
 }
 
+/// How the analyzed source universe was produced.
+///
+/// Discovered universes come from project discovery, which deliberately applies
+/// policy boundaries such as ignore rules, skipped directories, and workspace
+/// package ownership. Explicit universes are caller-owned file lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SourceUniverseKind {
+    Discovered,
+    Explicit,
+}
+
 // Import resolution updates diagnostics, graph edges, and report rows together;
 // splitting those mutations would make their one-to-one correspondence fragile.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -1060,6 +1076,7 @@ fn resolve_imports(
     external_packages: &BTreeSet<String>,
     workspace_module_targets: &[WorkspaceModuleTarget],
     yarn_pnp: bool,
+    universe_kind: SourceUniverseKind,
 ) -> (FileGraph, Vec<Vec<ImportReport>>) {
     let ids_by_path = prepared_files
         .iter()
@@ -1170,6 +1187,29 @@ fn resolve_imports(
                                     ),
                                 );
                                 (ResolutionStatus::Unsupported, None)
+                            } else if universe_kind == SourceUniverseKind::Discovered {
+                                // Discovery deliberately excludes ignored paths,
+                                // skipped directories, and nested workspace
+                                // packages. A resolution that lands there is an
+                                // opaque boundary like a dependency, so it stays
+                                // visible without suppressing other findings.
+                                facts[file_index].diagnostics.push(excluded_path_diagnostic(
+                                    &source_path,
+                                    &import.specifier,
+                                    &physical_target,
+                                    root,
+                                    import.span,
+                                ));
+                                // The recorded target tells downstream
+                                // dependency analysis that this external edge
+                                // still resolves inside the project.
+                                let target_display = physical_target
+                                    .strip_prefix(root)
+                                    .unwrap_or(&physical_target)
+                                    .display()
+                                    .to_string()
+                                    .replace('\\', "/");
+                                (ResolutionStatus::External, Some(target_display))
                             } else {
                                 facts[file_index]
                                     .diagnostics
@@ -2147,6 +2187,30 @@ fn outside_universe_diagnostic(
     }
 }
 
+fn excluded_path_diagnostic(
+    path: &str,
+    specifier: &str,
+    target: &Path,
+    root: &Path,
+    span: SourceSpan,
+) -> AnalysisDiagnostic {
+    let target_display = target.strip_prefix(root).map_or_else(
+        |_| target.display().to_string(),
+        |relative| relative.display().to_string(),
+    );
+    AnalysisDiagnostic {
+        code: "resolved_into_excluded_path".to_owned(),
+        path: path.to_owned(),
+        severity: DiagnosticSeverity::Warning,
+        span: Some(span),
+        message: format!(
+            "`{specifier}` resolved to `{target_display}`, which discovery excludes from the \
+             source universe; it is treated as an external boundary"
+        ),
+        blocks_reachability: false,
+    }
+}
+
 fn outside_analysis_root_diagnostic(
     path: &str,
     specifier: &str,
@@ -2222,10 +2286,18 @@ mod tests {
     };
 
     use super::{
-        FactCache, ScanRequest, is_analyzable_source, is_inert_asset, is_pnp_external_resolution,
-        is_pnp_virtual_dependency_path, package_name, scan_with_fact_cache_measured,
+        FactCache, ScanRequest, SourceUniverseKind, is_analyzable_source, is_inert_asset,
+        is_pnp_external_resolution, is_pnp_virtual_dependency_path, package_name,
+        scan_with_fact_cache_measured,
     };
-    use crate::{analysis::members::AnalysisMode, limits::AnalysisLimits};
+    use crate::{
+        analysis::members::AnalysisMode,
+        domain::{
+            facts::DiagnosticSeverity,
+            report::{Finding, ResolutionStatus},
+        },
+        limits::AnalysisLimits,
+    };
 
     static NEXT_PROJECT_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -2319,6 +2391,7 @@ mod tests {
             None,
             &[],
             false,
+            SourceUniverseKind::Explicit,
         )
         .expect("first scan");
 
@@ -2336,6 +2409,7 @@ mod tests {
             None,
             &[],
             false,
+            SourceUniverseKind::Explicit,
         )
         .expect("second scan");
 
@@ -2345,6 +2419,124 @@ mod tests {
         );
         assert_eq!(second.cache.as_ref().map(|cache| cache.hits), Some(1));
         assert_eq!(second.cache.as_ref().map(|cache| cache.misses), Some(0));
+    }
+
+    #[test]
+    fn discovered_universes_treat_excluded_resolutions_as_external_boundaries() {
+        let project = TestProject::new();
+        fs::write(project.root.join("package.json"), r#"{"private":true}"#)
+            .expect("write manifest");
+        let entry = project.root.join("src/index.ts");
+        fs::create_dir_all(project.root.join("src/generated/client"))
+            .expect("create generated directory");
+        fs::write(
+            project.root.join("src/generated/client/index.js"),
+            "export const value = 1;\n",
+        )
+        .expect("write generated client");
+        fs::write(
+            &entry,
+            "import { value } from './generated/client';\nexport const main = value;\n",
+        )
+        .expect("write entry source");
+        let unused = project.root.join("src/unused.ts");
+        fs::write(&unused, "export const dead = 1;\n").expect("write unused source");
+
+        let request = ScanRequest {
+            root: project.root.clone(),
+            entries: vec![entry.clone()],
+            files: vec![entry.clone(), unused],
+        };
+        let cache = FactCache::new(&project.root, b"config", b"profile").expect("create cache");
+        let (report, _) = scan_with_fact_cache_measured(
+            &request,
+            AnalysisLimits::default(),
+            &cache,
+            AnalysisMode::Balanced,
+            None,
+            None,
+            &["default".to_owned()],
+            None,
+            &[],
+            None,
+            &[],
+            false,
+            SourceUniverseKind::Discovered,
+        )
+        .expect("discovered scan");
+
+        let entry_file = report
+            .files
+            .iter()
+            .find(|file| file.path.ends_with("src/index.ts"))
+            .expect("entry file report");
+        assert_eq!(
+            entry_file.imports[0].status,
+            ResolutionStatus::External,
+            "an import into an excluded path stays an external boundary"
+        );
+        let diagnostic = report
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "resolved_into_excluded_path")
+            .expect("excluded-path warning");
+        assert_eq!(diagnostic.severity, DiagnosticSeverity::Warning);
+        assert!(
+            !diagnostic.blocks_reachability,
+            "an excluded boundary must not suppress other findings"
+        );
+        assert_unreachable_file_finding(&report.findings, "src/unused.ts");
+    }
+
+    #[test]
+    fn explicit_universes_still_report_resolutions_outside_the_universe() {
+        let project = TestProject::new();
+        fs::write(project.root.join("package.json"), r#"{"private":true}"#)
+            .expect("write manifest");
+        let entry = project.root.join("src/index.ts");
+        fs::create_dir_all(project.root.join("src/generated/client"))
+            .expect("create generated directory");
+        fs::write(
+            project.root.join("src/generated/client/index.js"),
+            "export const value = 1;\n",
+        )
+        .expect("write generated client");
+        fs::write(
+            &entry,
+            "import { value } from './generated/client';\nexport const main = value;\n",
+        )
+        .expect("write entry source");
+
+        let request = ScanRequest {
+            root: project.root.clone(),
+            entries: vec![entry.clone()],
+            files: vec![entry],
+        };
+        let report = crate::application::scan::scan(&request).expect("explicit scan");
+
+        let entry_file = report
+            .files
+            .iter()
+            .find(|file| file.path.ends_with("src/index.ts"))
+            .expect("entry file report");
+        assert_eq!(entry_file.imports[0].status, ResolutionStatus::Unresolved);
+        let diagnostic = report
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "outside_file_universe")
+            .expect("outside-universe error");
+        assert_eq!(diagnostic.severity, DiagnosticSeverity::Error);
+        assert!(diagnostic.blocks_reachability);
+    }
+
+    fn assert_unreachable_file_finding(findings: &[Finding], relative_path: &str) {
+        assert!(
+            findings.iter().any(|finding| {
+                finding.paths.iter().any(|path| path == relative_path)
+                    && finding.issue_id == "ORP1001"
+            }),
+            "expected an unreachable-file finding for `{relative_path}` in {findings:?}"
+        );
     }
 
     struct TestProject {

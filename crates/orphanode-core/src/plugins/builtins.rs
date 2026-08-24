@@ -55,6 +55,7 @@ pub fn builtin_plugins() -> Vec<DeclarativePlugin> {
         build_plugin(babel()),
         build_plugin(eslint()),
         build_plugin(jest()),
+        build_plugin(nest()),
         build_plugin(next()),
         build_plugin(nuxt()),
         build_plugin(postcss()),
@@ -202,7 +203,9 @@ fn build_plugin(spec: BuiltinSpec) -> DeclarativePlugin {
         unsupported_cases: vec![UnsupportedCase {
             code: spec.unsupported_code.to_owned(),
             summary: spec.unsupported_summary.to_owned(),
-            blocks_reachability: true,
+            // Tooling-configuration gaps stay visible as warnings. They name no
+            // unresolved import edge, so they do not suppress other findings.
+            blocks_reachability: false,
         }],
     };
     plugin.capabilities = capabilities_for(&plugin.contributions);
@@ -347,6 +350,21 @@ fn jest() -> BuiltinSpec {
         target_conditions: &["node", "test"],
         unsupported_code: "plugin_jest_dynamic_config",
         unsupported_summary: "Executable Jest configuration and custom resolver behavior are not evaluated",
+    }
+}
+
+fn nest() -> BuiltinSpec {
+    BuiltinSpec {
+        id: "nest",
+        display_name: "NestJS",
+        packages: &["@nestjs/common", "@nestjs/core"],
+        package_prefixes: &["@nestjs/"],
+        configs: &["nest-cli.json"],
+        entries: &["apps/*/src/main.*", "src/main.*"],
+        project_files: &[],
+        target_conditions: &["node"],
+        unsupported_code: "plugin_nest_dynamic_config",
+        unsupported_summary: "Dynamic module registration and runtime-provided providers are not evaluated",
     }
 }
 
@@ -573,6 +591,7 @@ mod tests {
                 "babel",
                 "eslint",
                 "jest",
+                "nest",
                 "next",
                 "nuxt",
                 "postcss",
@@ -588,7 +607,7 @@ mod tests {
             plugin
                 .unsupported_cases
                 .iter()
-                .all(|unsupported| unsupported.blocks_reachability)
+                .all(|unsupported| !unsupported.blocks_reachability)
         }));
     }
 

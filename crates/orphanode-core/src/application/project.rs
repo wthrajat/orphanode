@@ -45,7 +45,7 @@ use crate::{
         facts::{AnalysisDiagnostic, DiagnosticSeverity},
         report::{
             AnalysisStatus, Confidence, FileStatus, Finding, FixEligibility, ProjectReport,
-            RetentionReport, ScanReport,
+            ResolutionStatus, RetentionReport, ScanReport,
         },
     },
     javascript::parse_file_with_limits,
@@ -64,8 +64,8 @@ use crate::{
 use super::{
     ScanError, ScanRequest, TypeScriptWorkerHost, TypeScriptWorkerOptions,
     scan::{
-        AdditionalFileEdge, DeepMemberEvidence, FactCache, ScanStageMetrics, WorkspaceModuleTarget,
-        apply_deep_member_evidence, scan_with_fact_cache_measured,
+        AdditionalFileEdge, DeepMemberEvidence, FactCache, ScanStageMetrics, SourceUniverseKind,
+        WorkspaceModuleTarget, apply_deep_member_evidence, scan_with_fact_cache_measured,
     },
 };
 
@@ -544,6 +544,7 @@ pub fn scan_project_measured(
             Some(&declared_external_packages),
             &workspace_module_targets,
             has_yarn_pnp_manifest(&workspace.package_manager.yarn_plug_and_play),
+            SourceUniverseKind::Discovered,
         )?;
         aggregate_scan_measurements(&mut metrics, initial_measurements);
         let deep_candidates = if deep_enabled {
@@ -1499,7 +1500,7 @@ fn merge_profile_reports(
         .files
         .sort_by(|left, right| left.path.cmp(&right.path));
     sort_findings(&mut aggregate.findings);
-    sort_diagnostics(&mut aggregate.diagnostics);
+    merge_duplicate_diagnostics(&mut aggregate.diagnostics);
     aggregate.summary.files = aggregate.files.len();
     aggregate.summary.reachable_files = aggregate
         .files
@@ -1795,7 +1796,9 @@ fn add_entry_candidate(
             severity: DiagnosticSeverity::Warning,
             span: None,
             message: format!("{evidence} does not map to a discovered source file"),
-            blocks_reachability: true,
+            // The candidate names no discovered source, so no file's coverage
+            // is uncertain. The gap stays visible without suppressing findings.
+            blocks_reachability: false,
         });
     }
 }
@@ -3116,6 +3119,16 @@ fn source_dependency_evidence(
             let Some(package) = package_name(&import.specifier) else {
                 continue;
             };
+            // An import the resolver mapped to a project file is an internal
+            // module edge, such as a tsconfig path alias, not consumption of
+            // an npm package. An external status that still records a project
+            // target resolved into a policy-excluded project path and is the
+            // same kind of internal edge.
+            if import.status == ResolutionStatus::Resolved
+                || (import.status == ResolutionStatus::External && import.target.is_some())
+            {
+                continue;
+            }
             evidence.push(DependencyEvidence {
                 workspace: workspace_name.clone(),
                 reference: package,
@@ -3284,7 +3297,9 @@ fn append_script_diagnostics(
                 "scripts.{} invokes missing script {}",
                 missing.caller, missing.callee
             ),
-            blocks_reachability: true,
+            // A broken script chain names no source file, so it stays a
+            // visible warning instead of suppressing every finding.
+            blocks_reachability: false,
         });
     }
 }
@@ -4269,6 +4284,59 @@ fn sort_diagnostics(diagnostics: &mut Vec<AnalysisDiagnostic>) {
     diagnostics.dedup();
 }
 
+// Every profile rescans the same sources, and profile tagging rewrites the
+// diagnostic message, so identical findings from different profiles differ only
+// in their `[target ...]` prefix. Collapse them into one diagnostic whose
+// prefix names every reporting profile.
+fn merge_duplicate_diagnostics(diagnostics: &mut Vec<AnalysisDiagnostic>) {
+    sort_diagnostics(diagnostics);
+    let mut merged: Vec<AnalysisDiagnostic> = Vec::with_capacity(diagnostics.len());
+    for diagnostic in diagnostics.drain(..) {
+        match merged.last_mut() {
+            Some(previous)
+                if previous.code == diagnostic.code
+                    && previous.path == diagnostic.path
+                    && previous.span == diagnostic.span
+                    && previous.severity == diagnostic.severity
+                    && previous.blocks_reachability == diagnostic.blocks_reachability
+                    && strip_target_prefix(&previous.message)
+                        == strip_target_prefix(&diagnostic.message) =>
+            {
+                let profiles = union_target_profiles(&previous.message, &diagnostic.message);
+                previous.message = format!(
+                    "[target {profiles}] {}",
+                    strip_target_prefix(&diagnostic.message)
+                );
+            }
+            _ => merged.push(diagnostic),
+        }
+    }
+    *diagnostics = merged;
+}
+
+fn strip_target_prefix(message: &str) -> &str {
+    message
+        .strip_prefix("[target ")
+        .and_then(|rest| rest.split_once("] "))
+        .map_or(message, |(_, stripped)| stripped)
+}
+
+fn union_target_profiles(left_message: &str, right_message: &str) -> String {
+    [left_message, right_message]
+        .iter()
+        .filter_map(|message| {
+            message
+                .strip_prefix("[target ")
+                .and_then(|rest| rest.split_once("] "))
+                .map(|(profiles, _)| profiles)
+        })
+        .flat_map(|profiles| profiles.split(", "))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn sort_findings(findings: &mut [Finding]) {
     findings.sort_by(|left, right| {
         (
@@ -4313,12 +4381,15 @@ mod tests {
     use super::{
         AnalysisIssue, DeepOverrideRelationship, DeepRawResolution, DeepSourceSpan,
         DeepSymbolIdentity, append_file_transform_edges, collect_static_config_packages,
-        deep_cache_key, has_yarn_pnp_manifest, map_entry_to_source, resolve_deep_raw_resolution,
-        source_variants,
+        deep_cache_key, has_yarn_pnp_manifest, map_entry_to_source, merge_duplicate_diagnostics,
+        resolve_deep_raw_resolution, source_variants,
     };
     use crate::discovery::configuration::{ProjectConfiguration, ProjectConfigurationKind};
     use crate::{
-        analysis::members::DeepResolution, cache::Digest, plugins::FileTransformContribution,
+        analysis::members::DeepResolution,
+        cache::Digest,
+        domain::facts::{AnalysisDiagnostic, DiagnosticSeverity, SourceSpan},
+        plugins::FileTransformContribution,
     };
 
     #[test]
@@ -4326,6 +4397,33 @@ mod tests {
         let issues = AnalysisIssue::all();
         assert_eq!(issues.len(), 6);
         assert!(issues.contains(&AnalysisIssue::Members));
+    }
+
+    #[test]
+    fn profile_merge_collapses_diagnostics_that_differ_only_by_target_prefix() {
+        let make_diagnostic = |message: String| AnalysisDiagnostic {
+            code: "outside_file_universe".to_owned(),
+            path: "src/index.ts".to_owned(),
+            severity: DiagnosticSeverity::Error,
+            span: Some(SourceSpan { start: 8, end: 30 }),
+            message,
+            blocks_reachability: true,
+        };
+        let mut diagnostics = vec![
+            make_diagnostic("[target node] `a` resolved nowhere".to_owned()),
+            make_diagnostic("`b` is not analyzable".to_owned()),
+            make_diagnostic("[target browser] `a` resolved nowhere".to_owned()),
+            make_diagnostic("[target cli] `a` resolved nowhere".to_owned()),
+        ];
+
+        merge_duplicate_diagnostics(&mut diagnostics);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics[0].message,
+            "[target browser, cli, node] `a` resolved nowhere"
+        );
+        assert_eq!(diagnostics[1].message, "`b` is not analyzable");
     }
 
     #[test]

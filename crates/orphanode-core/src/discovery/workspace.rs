@@ -292,7 +292,7 @@ pub fn find_nearest_package_manifest(start: &Path) -> Option<PathBuf> {
     }
 }
 
-fn is_repository_boundary(directory: &Path) -> bool {
+pub(crate) fn is_repository_boundary(directory: &Path) -> bool {
     [".git", ".hg", ".svn"]
         .iter()
         .any(|marker| directory.join(marker).exists())
@@ -347,9 +347,13 @@ fn collect_package_manifests(root: &Path) -> Result<Vec<PathBuf>, WorkspaceError
                 continue;
             }
             if metadata.is_dir() {
-                if !SKIPPED_PACKAGE_DIRECTORIES
-                    .iter()
-                    .any(|name| entry.file_name() == OsStr::new(name))
+                // Nested repositories, such as git submodules, are independent
+                // projects. They are never part of this project's universe.
+                let is_boundary = is_repository_boundary(&path);
+                if !is_boundary
+                    && !SKIPPED_PACKAGE_DIRECTORIES
+                        .iter()
+                        .any(|name| entry.file_name() == OsStr::new(name))
                 {
                     pending.push(path);
                 }
@@ -614,6 +618,25 @@ mod tests {
                 .and_then(|package| package.manifest.name.as_deref()),
             Some("root")
         );
+    }
+
+    #[test]
+    fn nested_repository_packages_are_not_discovered_as_workspaces() {
+        let project = TestProject::new();
+        project.write(
+            "package.json",
+            r#"{"name":"root","workspaces":["src/submodules/*"]}"#,
+        );
+        project.write(
+            "src/submodules/shared/.git",
+            "gitdir: ../../.git/modules/shared\n",
+        );
+        project.write("src/submodules/shared/package.json", r#"{"name":"shared"}"#);
+
+        let discovery = discover_workspace(project.path()).expect("discover workspace");
+
+        assert_eq!(discovery.packages.len(), 1);
+        assert_eq!(discovery.packages[0].manifest.name.as_deref(), Some("root"));
     }
 
     #[test]

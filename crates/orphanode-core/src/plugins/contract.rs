@@ -554,11 +554,6 @@ impl UnsupportedCase {
     fn validate(&self) -> Result<(), PluginValidationError> {
         validate_diagnostic_code(&self.code)?;
         validate_text("unsupportedCases.summary", &self.summary, MAX_MESSAGE_BYTES)?;
-        if !self.blocks_reachability {
-            return Err(PluginValidationError::NonBlockingUnsupportedCase {
-                code: self.code.clone(),
-            });
-        }
         Ok(())
     }
 }
@@ -598,8 +593,6 @@ pub enum PluginValidationError {
     UndeclaredCapability { capability: PluginCapability },
     #[error("error diagnostic `{code}` must block reachability")]
     NonBlockingErrorDiagnostic { code: String },
-    #[error("unsupported case `{code}` must block reachability")]
-    NonBlockingUnsupportedCase { code: String },
     #[error("cannot canonicalize workspace root `{path}`: {message}")]
     WorkspaceRoot { path: PathBuf, message: String },
     #[error("cannot canonicalize plugin path `{path}`: {message}")]

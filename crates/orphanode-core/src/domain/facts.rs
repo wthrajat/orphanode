@@ -187,6 +187,7 @@ pub struct SymbolFactFlags {
     pub escapes: bool,
     pub ambient: bool,
     pub safe_removal_span: bool,
+    pub parameter_property: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

@@ -190,6 +190,11 @@ fn should_visit_entry(entry: &DirEntry) -> bool {
     if entry.depth() == 0 || !entry.file_type().is_some_and(|kind| kind.is_dir()) {
         return true;
     }
+    // Nested repositories, such as git submodules, are independent projects
+    // excluded from the surrounding package's source universe by policy.
+    if workspace::is_repository_boundary(entry.path()) {
+        return false;
+    }
     !SKIPPED_DIRECTORIES
         .iter()
         .any(|directory| entry.file_name() == OsStr::new(directory))
@@ -224,6 +229,21 @@ mod tests {
     use crate::limits::AnalysisLimits;
 
     static NEXT_PROJECT_ID: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn nested_repository_boundaries_are_excluded_from_the_source_universe() {
+        let project = TestProject::new();
+        project.write("src/index.ts", "");
+        project.write("vendor/.git", "gitdir: ../.git/modules/vendor\n");
+        project.write("vendor/legacy.ts", "");
+        project.write("tools/nested/.hg", "");
+        project.write("tools/nested/helper.js", "");
+
+        let discovered =
+            discover_source_files(project.path()).expect("discover with repository boundaries");
+
+        assert_eq!(discovered, [PathBuf::from("src/index.ts")]);
+    }
 
     #[test]
     fn discovery_is_sorted_and_respects_project_ignores_and_skipped_directories() {

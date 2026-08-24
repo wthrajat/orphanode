@@ -709,12 +709,54 @@ fn analyze_package_manager(
         analyze_exec_command(script_name, remaining, contribution);
         return;
     }
-    if matches!(manager, "yarn" | "pnpm" | "bun") && !first.value.starts_with('-') {
+    if matches!(manager, "yarn" | "pnpm" | "bun")
+        && !first.value.starts_with('-')
+        && !PACKAGE_MANAGER_COMMANDS.contains(&first.value.as_str())
+    {
+        // `pnpm up` is a CLI action, not an implicit `pnpm run up`. Only
+        // non-builtin verbs can name a package script.
         contribution
             .nested_scripts
             .insert((first.value.clone(), first.span));
     }
 }
+
+/// Verbs that every supported package manager handles itself. An implicit
+/// `run` never applies to them, so they are never package-script calls.
+const PACKAGE_MANAGER_COMMANDS: [&str; 32] = [
+    "add",
+    "audit",
+    "bin",
+    "ci",
+    "config",
+    "dedupe",
+    "deploy",
+    "import",
+    "init",
+    "install",
+    "i",
+    "link",
+    "ln",
+    "list",
+    "login",
+    "logout",
+    "outdated",
+    "pack",
+    "patch",
+    "pm",
+    "prune",
+    "publish",
+    "rebuild",
+    "remove",
+    "rm",
+    "store",
+    "unlink",
+    "uninstall",
+    "up",
+    "update",
+    "upgrade",
+    "why",
+];
 
 fn package_manager_action_index(arguments: &[ScriptToken]) -> usize {
     let mut index = 0;
@@ -1193,6 +1235,41 @@ mod tests {
                 && call.callee == "compile"
                 && call.kind == ScriptCallKind::Explicit
         }));
+    }
+
+    #[test]
+    fn package_manager_cli_actions_are_not_implicit_script_calls() {
+        let scripts = BTreeMap::from([
+            (
+                "upgrade-latest".to_owned(),
+                "pnpm up --latest --interactive".to_owned(),
+            ),
+            ("fresh".to_owned(), "yarn install && bun add zod".to_owned()),
+        ]);
+
+        let analysis = analyze_scripts(&scripts, &[]);
+
+        assert!(analysis.missing_scripts.is_empty());
+        assert!(
+            !analysis.calls.iter().any(|call| call.callee == "up"
+                || call.callee == "add"
+                || call.callee == "install")
+        );
+    }
+
+    #[test]
+    fn implicit_pnpm_runs_of_real_scripts_stay_reachable() {
+        let scripts = BTreeMap::from([
+            ("dist".to_owned(), "pnpm build".to_owned()),
+            ("build".to_owned(), "tsc -p tsconfig.json".to_owned()),
+        ]);
+
+        let analysis = analyze_scripts(&scripts, &["dist".to_owned()]);
+
+        assert_eq!(
+            analysis.reachable_scripts,
+            ["build", "dist"].map(str::to_owned)
+        );
     }
 
     #[test]

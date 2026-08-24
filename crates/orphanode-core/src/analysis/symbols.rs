@@ -165,11 +165,13 @@ pub fn analyze_symbols(input: &SymbolAnalysisInput<'_>) -> SymbolAnalysisResult 
         }
         let active_regions = active_eager_regions(facts);
         for reference in &facts.symbol_facts.references {
-            if reference.usage != UsageKind::Runtime
-                || !active_regions
-                    .get(reference.region.0 as usize)
-                    .copied()
-                    .unwrap_or(false)
+            // A type-position reference retains a type-namespace symbol in the
+            // type lane without claiming runtime use, so both usages mark
+            // their own lane instead of dropping non-runtime references.
+            if !active_regions
+                .get(reference.region.0 as usize)
+                .copied()
+                .unwrap_or(false)
             {
                 continue;
             }
@@ -181,7 +183,7 @@ pub fn analyze_symbols(input: &SymbolAnalysisInput<'_>) -> SymbolAnalysisResult 
                     file,
                     symbol: reference.target,
                 },
-                UsageKind::Runtime,
+                reference.usage,
             );
         }
 
@@ -227,11 +229,13 @@ pub fn analyze_symbols(input: &SymbolAnalysisInput<'_>) -> SymbolAnalysisResult 
         }
     }
 
-    while let Some((source, usage)) = queue.pop_front() {
+    while let Some((source, _reached_via)) = queue.pop_front() {
+        // An import binding reached in one lane can still be the carrier for
+        // exports of the other lane, because value syntax may hold a
+        // type-only export and vice versa. The edge target always lands in
+        // the lane its own export declares.
         for edge in &outgoing[source] {
-            if edge.source_usage == usage {
-                mark_node_reachable(&mut reachable, &mut queue, edge.target, edge.target_usage);
-            }
+            mark_node_reachable(&mut reachable, &mut queue, edge.target, edge.target_usage);
         }
     }
 
@@ -393,6 +397,7 @@ fn is_reportable_declaration(files: &[FileFacts], key: SymbolKey) -> bool {
         })
         .is_some_and(|symbol| {
             !symbol.flags.ambient
+                && !symbol.flags.parameter_property
                 && !matches!(
                     symbol.kind,
                     DeclarationKind::CatchBinding

@@ -247,7 +247,7 @@
       "properties": {
         "code": { "$ref": "#/$defs/diagnosticCode" },
         "summary": { "$ref": "#/$defs/nonEmptyText" },
-        "blocksReachability": { "const": true }
+        "blocksReachability": { "type": "boolean" }
       }
     },
     "contributions": {

@@ -204,7 +204,7 @@ fn static_config_applies_ignore_retain_and_confidence_contracts() {
 }
 
 #[test]
-fn builtin_plugin_adds_convention_roots_and_blocks_unsupported_config() {
+fn builtin_plugin_config_gaps_warn_while_dynamic_imports_still_block() {
     let project = TestProject::from_fixture("plugin-next-gap");
     let report = scan_node_project(project.root());
     let project_report = report.project.as_ref().expect("project metadata");
@@ -225,8 +225,13 @@ fn builtin_plugin_adds_convention_roots_and_blocks_unsupported_config() {
         file_status(&report, "app/[slug]/page.tsx"),
         FileStatus::Reachable
     );
+    // Tooling-configuration gaps are visible without suppressing findings.
     assert!(report.diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == "plugin_next_dynamic_config" && diagnostic.blocks_reachability
+        diagnostic.code == "plugin_next_dynamic_config" && !diagnostic.blocks_reachability
+    }));
+    // Unenumerable dynamic imports remain coverage blockers.
+    assert!(report.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "unsupported_dynamic_import" && diagnostic.blocks_reachability
     }));
     let blocked_file = report
         .files
