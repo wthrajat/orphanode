@@ -1,73 +1,187 @@
 # OrphaNode
 
-Find unused JavaScript and TypeScript without running your application.
+Find dead code in JavaScript and TypeScript projects, without the false positives.
 
-OrphaNode follows files, exports, declarations, class members, dependencies,
-and workspace packages from the places your project can actually start. When it
-cannot prove something is unused, it reports the missing coverage instead of
-guessing.
+OrphaNode builds a real reachability graph of your project. It follows imports,
+exports, declarations, class members, dependencies, and workspace packages from
+actual entry points. If it can't prove code is unused, it doesn't report it.
+It tells you what it couldn't see instead.
 
-It supports JavaScript, JSX, TypeScript, TSX, ESM, CommonJS, npm, pnpm, Yarn,
-Bun workspaces, TypeScript configuration, package exports, and common framework
-entry conventions.
+[![crates.io](https://img.shields.io/crates/v/orphanode?logo=rust&label=crates.io)](https://crates.io/crates/orphanode)
+[![npm](https://img.shields.io/npm/v/orphanode?logo=npm)](https://www.npmjs.com/package/orphanode)
+[![CI](https://github.com/wthrajat/orphanode/actions/workflows/ci.yml/badge.svg)](https://github.com/wthrajat/orphanode/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/orphanode)](LICENSE-MIT)
 
 ## Install
 
-With npm:
-
 ```sh
-npm install --global orphanode
+npm install --global orphanode   # prebuilt binaries for macOS, Linux, Windows
 ```
 
-With Cargo:
-
 ```sh
-cargo install orphanode
+cargo install orphanode          # Rust 1.95+
 ```
-
-Or build the current checkout:
-
-```sh
-cargo install --path crates/orphanode
-```
-
-The npm package requires Node.js 18.18 or newer. Building from source requires
-Rust 1.95 or newer.
 
 ## Quick start
-
-Run OrphaNode from a package or monorepo:
 
 ```sh
 cd my-project
 orphanode scan
 ```
 
-That is enough for most projects. OrphaNode discovers workspaces, source files,
-package entry points, exports, scripts, TypeScript configuration, and supported
-framework conventions. Project scans run every issue family by default across
-the built-in `node`, `browser`, `types`, `cli`, and `test` target profiles.
+That's it. Workspaces, entry points, package exports, scripts, tsconfig, and
+common framework conventions get picked up on their own.
 
-Common examples:
+Real output from a small monorepo fixture:
+
+```text
+ORPHANODE  reachability scan
+
+› Entries  2 configured
+    ├─ packages/closed/src/index.js
+    └─ packages/open/src/index.js
+  Mode  balanced · 4 workspaces (mixed world) · 5 target profiles
+  3 reachable · 1 unreachable · 0 incomplete · 0 diagnostics
+
+FINDINGS
+● ORP1002  HIGH confidence
+  Scope  packages/closed  ·  browser, cli, node, test, types  ·  fix preview only
+  export closedApi from packages/closed/src/index.js has no live consumer
+  Symbol  closedApi
+  Paths
+    └─ packages/closed/src/index.js
+  Evidence
+    ├─ No resolved import or re-export reaches this export binding
+    └─ The package is analyzed as closed world for this entry
+  Next
+    └─ Review the public contract and request a fix preview before editing
+
+● ORP1003  HIGH confidence
+  Scope  packages/closed  ·  browser, cli, node, test, types  ·  fix preview only
+  declaration closedApi has no live reference
+  Symbol  closedApi
+  Paths
+    └─ packages/closed/src/index.js
+  Evidence
+    └─ No reachable execution region, import, export contract, or live declaration reaches this binding
+  Next
+    └─ Inspect the exact declaration span in a fix preview
+
+● ORP3001  HIGH confidence
+  Scope  packages/unused  ·  node, browser, types, cli, test  ·  fix not available
+  workspace @fixture/unused has no live root or consumer
+  Paths
+    └─ packages/unused/package.json
+  Evidence
+    └─ No reachable file, package-name import, package script, or public contract retains this private workspace
+  Next
+    └─ Review workspace consumers and configuration before removing the package
+
+● ORP1001  HIGH confidence
+  Scope  packages/unused  ·  browser, cli, node, test, types  ·  fix eligible
+  packages/unused/src/index.js is unreachable
+  Paths
+    └─ packages/unused/src/index.js
+  Evidence
+    └─ No resolved path from any of the 2 configured entries
+  Next
+    └─ Review the files or configure an additional entry before removal
+
+DIAGNOSTICS
+  — None reported
+
+✓ COMPLETE  Reachability analysis finished.
+```
+
+Disagree with a verdict? Ask for the reasoning:
 
 ```sh
-# Scan one workspace in a monorepo
-orphanode scan --workspace packages/api
+$ orphanode why packages/unused/src/index.js
 
-# Check only files, exports, and dependencies
-orphanode scan --issues files,exports,dependencies
-
-# Scan the Node and CLI target profiles
-orphanode scan --target node,cli
-
-# Write deterministic JSON or SARIF
-orphanode scan --format json --pretty > orphanode-report.json
-orphanode scan --format sarif --pretty > orphanode.sarif
-
-# Explain a result
-orphanode why src/legacy.ts
-orphanode why eslint
+packages/unused/src/index.js is unreachable
+└─ No resolved path from any of the 2 configured entries
 ```
+
+## Why bother
+
+Dead code tools are easy to write and hard to trust. Most of them pattern match,
+hand you 400 suspects, and wish you good luck. So you end up deleting nothing
+and keeping that one util file from 2021 around forever lol.
+
+OrphaNode takes the slower route: resolve every import properly (package
+exports, tsconfig path aliases, ESM conditions, workspace boundaries), build the
+graph, then report only what nothing can reach. Every finding ships with the
+evidence chain behind it. And when something is genuinely ambiguous, like a
+dynamic import or a loader it can't see through, it prints a diagnostic instead
+of a guess.
+
+Also in the box:
+
+- `orphanode why src/foo.ts` explains any verdict, kept or reported
+- Safe fixes: preview first, verify file and manifest hashes right before
+  writing, then re-scan the whole project and abort if anything new appears
+- Deterministic JSON against a versioned schema, SARIF 2.1.0 for CI, exit codes
+  that make sense (`2` means incomplete analysis, never silently clean)
+- ts-prune style compact output when you just want greppable lines:
+
+  ```sh
+  $ orphanode scan --issues exports --format compact
+  packages/closed/src/index.js:1:17 - ORP1002 'closedApi' is unused
+  ```
+
+- A local cache, so repeat scans skip most of the work
+
+## What it finds
+
+| Code | Finding |
+| --- | --- |
+| `ORP1001` | Unreachable source file |
+| `ORP1002` | Unused export |
+| `ORP1003` | Unused declaration |
+| `ORP1004` | Unused class member |
+| `ORP2001` | Unused direct dependency |
+| `ORP2002` | Unlisted or misplaced dependency |
+| `ORP3001` | Unused private workspace package |
+
+Understands JavaScript, JSX, TypeScript, TSX, ESM, CommonJS, npm/pnpm/Yarn/Bun
+workspaces, and common framework entry conventions, across `node`, `browser`,
+`types`, `cli`, and `test` target profiles.
+
+## Speed
+
+Performance here is enforced in CI, not vibes. A pinned million-line corpus has
+to stay inside these budgets or the release gets blocked
+([methodology](docs/benchmark-baseline.md)):
+
+| Scenario | Budget |
+| --- | --- |
+| Cold scan, 1,000,000 lines | ≤ 5 s |
+| Unchanged rescan | ≤ 500 ms |
+| One-file incremental edit | ≤ 750 ms |
+| Peak memory | < 750 MiB |
+
+## How it's tested
+
+- Around 210 tests across library, CLI, and integration suites, plus fixture
+  scans covering every supported module system
+- Fuzzing in CI on five targets: parser, config, resolver, plugin protocol, and
+  cache corruption
+- Differential tests against Node's own resolver and the TypeScript compiler
+- cargo-deny for the supply chain, pinned toolchains, hash-pinned GitHub Actions
+- Releases publish through trusted publishing (OIDC) with checksums, an SBOM,
+  and Sigstore attestations
+
+## Limits
+
+Static analysis can't see everything, and pretending otherwise is how you get
+tools that delete production code lol. Reflection, computed requires, custom
+loaders, Vue/Svelte single-file components, executable config files: OrphaNode
+either handles them or says so. Anything it can't fully model becomes a
+diagnostic, and findings those gaps could invalidate get suppressed.
+
+Scans never run your project source. Deep mode may load your project's
+TypeScript compiler, but in a separate worker process, and if that's missing it
+just keeps the affected code and explains why.
 
 ## Commands
 
@@ -79,14 +193,8 @@ orphanode config     Validate and show project configuration
 orphanode cache      Manage the local analysis cache
 ```
 
-Use `orphanode --help` or `orphanode <command> --help` for built-in help.
-Use `orphanode --version` to print the installed version.
-
-### `orphanode scan`
-
-```sh
-orphanode scan [OPTIONS]
-```
+<details>
+<summary><strong>Full <code>scan</code> options</strong></summary>
 
 | Option | What it does |
 | --- | --- |
@@ -110,19 +218,14 @@ orphanode scan [OPTIONS]
 | `--fix-dependency NAME` | Select a dependency. Use `WORKSPACE:NAME` when ambiguous; requires `--fix`. |
 | `--file PATH` | Add a file to an exact, caller-owned source universe. Repeat as needed. |
 | `--files-from PATH` | Read an exact source universe from a JSON manifest. |
-| `--report-tests` | Also report findings whose paths are test files. Tests always stay in the reachability graph as roots; by default they are analyzed but not reported. |
+| `--report-tests` | Also report findings in test files. Tests always stay in the reachability graph as roots; by default they are analyzed but not reported. |
 
 Without `--file` or `--files-from`, `scan` uses full project discovery. Adding
-`--entry` changes only the roots; discovery still handles the rest of the
-project.
+`--entry` changes only the roots. The exact-universe flags are for tools that
+already know the complete file set, and they can't be combined with project-only
+options like `--workspace`, `--mode`, `--target`, world overrides, or fixes.
 
-`--file` and `--files-from` are for tools that already know the complete source
-universe. They cannot be combined with project-only options such as
-`--workspace`, `--mode`, `--target`, world overrides, dependency/workspace
-issues, or fixes. A repeated `--file` universe also needs at least one `--entry`.
-`--files-from` cannot be combined with `--entry` or `--file`.
-
-An exact-universe manifest looks like this:
+An exact-universe manifest (`--files-from`) looks like this:
 
 ```json
 {
@@ -135,64 +238,13 @@ An exact-universe manifest looks like this:
 }
 ```
 
-It may use a single `entry` instead of `entries`, but not both. Every entry must
-also appear in `files`.
+</details>
 
-### `orphanode why`
+<details>
+<summary><strong>Configuration</strong></summary>
 
-Explain a file or npm package:
-
-```sh
-orphanode why src/server.ts
-orphanode why react --root ./apps/web
-orphanode why src/server.ts --format json --pretty
-```
-
-Syntax:
-
-```text
-orphanode why QUERY [--root DIR] [--entry PATH ...]
-                     [--file PATH ... | --files-from PATH]
-                     [--format human|json] [--pretty]
-```
-
-The result shows a supported reachability chain, finding evidence, an incomplete
-coverage explanation, or a not-found result.
-
-### `orphanode explain`
-
-Show the safety rule behind an issue:
-
-```sh
-orphanode explain ORP1001
-orphanode explain ORP2001 --json
-```
-
-Supported issue codes:
-
-| Code | Meaning |
-| --- | --- |
-| `ORP1001` | Unreachable source file |
-| `ORP1002` | Unused export |
-| `ORP1003` | Unused declaration |
-| `ORP1004` | Unused class member |
-| `ORP2001` | Unused direct dependency |
-| `ORP2002` | Unlisted or misplaced dependency |
-| `ORP3001` | Unused private workspace package |
-
-### `orphanode config`
-
-Validate configuration and print the normalized project state:
-
-```sh
-orphanode config --check --pretty
-orphanode config --root ./my-project --check
-```
-
-Options are `--root DIR`, `--check`, and `--pretty`.
-
-OrphaNode reads an `orphanode` object from `package.json` and a higher-priority
-`orphanode.jsonc`. A small example:
+Put an `orphanode` object in `package.json`, or an `orphanode.jsonc` file next
+to it (which wins):
 
 ```jsonc
 {
@@ -216,95 +268,36 @@ OrphaNode reads an `orphanode` object from `package.json` and a higher-priority
 }
 ```
 
-The complete machine-readable contract is
+Validate any setup with:
+
+```sh
+orphanode config --check --pretty
+```
+
+Full machine-readable contract:
 [`schemas/config-v1.schema.json`](schemas/config-v1.schema.json).
 
-### `orphanode cache clean`
+Analysis modes:
 
-Remove only OrphaNode's cache for a project:
+- `balanced` (default)
+- `fast`: keeps more code when member evidence is expensive to establish
+- `deep`: asks an isolated TypeScript worker for extra member and override
+  facts. No worker available? Affected code stays, with an explanation.
+
+The npm install wires up the worker automatically. Source builds can point
+`ORPHANODE_TYPESCRIPT_WORKER` at the worker path.
+
+Cache lives at `.orphanode/cache` in the project root:
 
 ```sh
 orphanode cache clean
-orphanode cache clean --root ./my-project
 ```
 
-The cache lives at `.orphanode/cache` inside the resolved project root.
+</details>
 
-## Analysis modes
+## Project
 
-- `balanced` is the default.
-- `fast` keeps more code when member evidence is expensive to establish.
-- `deep` asks the isolated TypeScript worker for additional member and override
-  facts. If the worker or a compatible project TypeScript installation is not
-  available, OrphaNode keeps affected code and explains the limitation.
+- [Contributing guide](CONTRIBUTING.md) and [architecture notes](DEVELOPMENT.md)
+- [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
 
-The npm installation configures the worker automatically. Source and Cargo
-installs can set `ORPHANODE_TYPESCRIPT_WORKER` to
-`packages/typescript-worker/src/worker.mjs`.
-
-## Safe fixes
-
-Fixes always require an exact selection and a preview:
-
-```sh
-# Preview
-orphanode scan --issues dependencies --fix --fix-dependency lodash
-orphanode scan --issues files --fix --fix-file src/unused.ts
-
-# Apply the same selected plan
-orphanode scan --issues dependencies --fix --fix-dependency lodash --apply
-```
-
-Only eligible high-confidence dependency removals and closed-world whole-file
-deletions can be applied. OrphaNode rechecks file and manifest hashes immediately
-before changing anything, then performs a complete scan. It fails the operation
-if new findings, diagnostics, or unresolved imports appear. Export, declaration,
-and member edits remain review-only.
-
-Fixes currently require human output.
-
-## Output and exit codes
-
-Human output is designed for terminals and honors `NO_COLOR`. `compact` prints
-one ts-prune-style line per finding, `path:line:column - CODE 'name' is unused`,
-for quick reading and grepping. JSON uses the versioned
-[`scan-report-v0.2` schema](schemas/scan-report-v0.2.schema.json). SARIF 2.1.0
-is available for code-scanning tools.
-
-A ts-prune-like unused-export report is:
-
-```sh
-orphanode scan --issues exports --format compact
-```
-
-| Exit code | Meaning |
-| ---: | --- |
-| `0` | Analysis completed and no finding reached the configured failure threshold. |
-| `1` | Analysis completed and at least one finding reached the failure threshold. |
-| `2` | Analysis or input was incomplete or invalid. |
-| `3` | Output, cache, fix planning, or fix application failed. |
-
-For `why`, `0` means explained, `1` means not found, and `2` means incomplete.
-
-## What OrphaNode does not guess
-
-Static analysis cannot fully model arbitrary reflection, computed runtime loads,
-custom loaders, executable configuration, or embedded scripts inside component
-formats such as Vue and Svelte. OrphaNode surfaces relevant gaps as diagnostics
-and suppresses findings they could invalidate.
-
-Ordinary scans do not execute project source, package scripts, dynamic
-configuration, or network requests. Deep mode may load the project's TypeScript
-compiler. A configured `exec:` plugin is trusted code and is not an operating-
-system sandbox.
-
-## Development and support
-
-- Technical architecture, testing, fixtures, and release notes:
-  [DEVELOPMENT.md](DEVELOPMENT.md)
-- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
-- Security reports: [SECURITY.md](SECURITY.md)
-- Release history: [CHANGELOG.md](CHANGELOG.md)
-
-OrphaNode is licensed under either the [MIT License](LICENSE-MIT) or the
-[Apache License 2.0](LICENSE-APACHE), at your option.
+MIT or [Apache-2.0](LICENSE-APACHE), your pick.
