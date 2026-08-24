@@ -22,13 +22,13 @@ npm install --global orphanode
 With Cargo:
 
 ```sh
-cargo install orphanode-cli
+cargo install orphanode
 ```
 
 Or build the current checkout:
 
 ```sh
-cargo install --path crates/orphanode-cli
+cargo install --path crates/orphanode
 ```
 
 The npm package requires Node.js 18.18 or newer. Building from source requires

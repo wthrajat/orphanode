@@ -8,6 +8,10 @@ Notable changes to OrphaNode are recorded here. The project follows
 
 ### Changed
 
+- Merged the `orphanode-core` library and `orphanode-cli` binary into a single
+  `orphanode` crate that ships both the analysis library and the CLI. Nothing
+  was published to crates.io under the old names, so no compatibility shim is
+  needed.
 - Reworked public documentation around a concise user guide and a separate
   contributor guide.
 

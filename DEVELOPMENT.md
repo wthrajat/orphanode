@@ -14,7 +14,7 @@ Build and run the CLI:
 
 ```sh
 cargo build --workspace
-cargo run -p orphanode-cli -- scan --root fixtures/esm --files-from files.json
+cargo run -- scan -- scan --root fixtures/esm --files-from files.json
 ```
 
 The fixture intentionally contains an unreachable file, so the scan exits `1`.
@@ -36,10 +36,10 @@ workspace, manifest, config, script, and plugin discovery
   -> human, JSON, SARIF, or reviewed fix plan
 ```
 
-- `crates/orphanode-core` owns discovery, parsing, resolution, graph policy,
-  caching, plugins, fixes, and the report model.
-- `crates/orphanode-cli` owns arguments, terminal rendering, process execution,
-  output, and exit codes.
+- `crates/orphanode` is the single Rust crate. Its library owns discovery,
+  parsing, resolution, graph policy, caching, plugins, fixes, and the report
+  model; its binary target owns arguments, terminal rendering, process
+  execution, output, and exit codes.
 - `packages/orphanode` is the dependency-minimal npm launcher.
 - `packages/platforms/*` are native npm packages.
 - `packages/typescript-worker` is the optional deep-analysis worker.
@@ -51,7 +51,7 @@ The core has two entry points:
 ```rust
 use std::path::PathBuf;
 
-use orphanode_core::{ProjectScanRequest, ScanRequest, scan, scan_project};
+use orphanode::{ProjectScanRequest, ScanRequest, scan, scan_project};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Normal project discovery.
@@ -124,13 +124,13 @@ TYPESCRIPT_PATH=/path/to/typescript/lib/typescript.js \
 Run microbenchmarks:
 
 ```sh
-cargo bench --package orphanode-core --bench hot_paths
+cargo bench --package orphanode --bench hot_paths
 ```
 
 Run the generated million-line release gate after building the release binary:
 
 ```sh
-cargo build --release --package orphanode-cli
+cargo build --release --package orphanode
 node benchmarks/benchmark.mjs \
   --binary target/release/orphanode \
   --output target/benchmark-result.json
@@ -174,7 +174,7 @@ The release workflow coordinates:
 2. bounded release fuzzing and the performance gate;
 3. native builds for GNU/Linux x64, macOS arm64/x64, and Windows x64;
 4. checksum, npm install, and executable smoke tests;
-5. `orphanode-core`, then `orphanode-cli`, on crates.io;
+5. `orphanode` on crates.io;
 6. four native npm packages, the TypeScript worker, then `orphanode`;
 7. checksummed archives, SBOM, build attestations, and the GitHub release.
 

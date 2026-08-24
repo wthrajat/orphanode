@@ -1,7 +1,6 @@
 [workspace]
 members = [
-    "crates/orphanode-cli",
-    "crates/orphanode-core",
+    "crates/orphanode",
 ]
 resolver = "3"
 

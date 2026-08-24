@@ -9,7 +9,7 @@ use std::{
 };
 
 use libfuzzer_sys::fuzz_target;
-use orphanode_core::discovery::{
+use orphanode::discovery::{
     configuration::load_orphanode_configuration,
     manifest::{EntryTargetProfile, PackageManifest, package_entry_roots},
 };

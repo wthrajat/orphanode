@@ -3,7 +3,7 @@
 use std::{cell::OnceCell, path::PathBuf, str};
 
 use libfuzzer_sys::fuzz_target;
-use orphanode_core::{
+use orphanode::{
     domain::facts::ResolutionMode,
     resolution::{ModuleResolver, OxcModuleResolver, is_relative},
 };

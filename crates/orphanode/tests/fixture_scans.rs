@@ -1,10 +1,10 @@
 use std::{fs, path::PathBuf};
 
-use orphanode_core::domain::{
+use orphanode::domain::{
     facts::ImportKind,
     report::{AnalysisStatus, FileStatus, ResolutionStatus},
 };
-use orphanode_core::{ScanReport, ScanRequest, scan};
+use orphanode::{ScanReport, ScanRequest, scan};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

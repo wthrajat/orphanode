@@ -158,7 +158,7 @@ jobs:
         with:
           node-version: 24.11.1
       - name: Build CLI
-        run: cargo +stable build --package orphanode-cli
+        run: cargo +stable build --package orphanode
       - name: Generate reports and check deterministic output
         run: >-
           node benchmarks/contract.mjs
@@ -198,7 +198,7 @@ jobs:
           TYPESCRIPT_PATH: ${{ runner.temp }}/resolver-tools/node_modules/typescript
         run: node fixtures/reference/check-references.mjs
       - name: Build CLI
-        run: cargo +stable build --package orphanode-cli
+        run: cargo +stable build --package orphanode
       - name: Compare with Node.js and TypeScript
         shell: bash
         run: >-
@@ -245,7 +245,7 @@ jobs:
         with:
           node-version: 24.11.1
       - name: Build native binary
-        run: cargo +stable build --release --package orphanode-cli --target ${{ matrix.target }}
+        run: cargo +stable build --release --package orphanode --target ${{ matrix.target }}
       - name: Pack, install, and smoke-test local npm packages
         shell: bash
         run: >-
@@ -272,7 +272,7 @@ jobs:
         with:
           node-version: 24.11.1
       - name: Build release CLI
-        run: cargo +stable build --release --package orphanode-cli
+        run: cargo +stable build --release --package orphanode
       - name: Enforce cold, warm, and edit-cycle budgets
         run: >-
           node benchmarks/benchmark.mjs

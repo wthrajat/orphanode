@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use orphanode_core::{
+use orphanode::{
     ScanReport,
     domain::{
         facts::DiagnosticSeverity,
@@ -553,9 +553,9 @@ const fn confidence_label(confidence: Confidence) -> &'static str {
 }
 
 const fn fix_eligibility_label(
-    eligibility: orphanode_core::domain::report::FixEligibility,
+    eligibility: orphanode::domain::report::FixEligibility,
 ) -> &'static str {
-    use orphanode_core::domain::report::FixEligibility;
+    use orphanode::domain::report::FixEligibility;
 
     match eligibility {
         FixEligibility::NotAvailable => "not available",
@@ -608,7 +608,7 @@ fn is_unsafe_terminal_character(character: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use orphanode_core::domain::{
+    use orphanode::domain::{
         facts::{AnalysisDiagnostic, DiagnosticSeverity, SourceSpan},
         report::{
             AnalysisStatus, Confidence, FixEligibility, REPORT_SCHEMA_VERSION, ReportSummary,

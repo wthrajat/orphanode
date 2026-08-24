@@ -1,21 +1,30 @@
 [package]
-name = "orphanode-core"
+name = "orphanode"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "Accuracy-first reachability analysis for JavaScript and TypeScript"
+description = "Accuracy-first reachability analysis for JavaScript and TypeScript projects, as a library and a CLI"
 license.workspace = true
 readme = "README.md"
 homepage.workspace = true
-documentation = "https://docs.rs/orphanode-core"
+documentation = "https://docs.rs/orphanode"
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 publish.workspace = true
 exclude = ["tests/**"]
 
+[lib]
+name = "orphanode"
+path = "src/lib.rs"
+
+[[bin]]
+name = "orphanode"
+path = "src/main.rs"
+
 [dependencies]
+clap.workspace = true
 ignore.workspace = true
 oxc_allocator.workspace = true
 oxc_ast.workspace = true

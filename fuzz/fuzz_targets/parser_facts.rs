@@ -3,7 +3,7 @@
 use std::{path::Path, str};
 
 use libfuzzer_sys::fuzz_target;
-use orphanode_core::javascript::parse_file;
+use orphanode::javascript::parse_file;
 
 const MAX_INPUT_BYTES: usize = 64 * 1024;
 const SOURCE_PATHS: [&str; 8] = [

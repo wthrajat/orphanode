@@ -4,8 +4,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use orphanode_core::domain::report::{AnalysisStatus, Confidence, FileStatus};
-use orphanode_core::{ProjectScanRequest, ScanReport, scan_project};
+use orphanode::domain::report::{AnalysisStatus, Confidence, FileStatus};
+use orphanode::{ProjectScanRequest, ScanReport, scan_project};
 
 static NEXT_PROJECT_ID: AtomicU64 = AtomicU64::new(0);
 

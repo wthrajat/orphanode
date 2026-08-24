@@ -9,7 +9,7 @@ use std::{
 };
 
 use libfuzzer_sys::fuzz_target;
-use orphanode_core::cache::{CacheEntry, CacheLimits, CacheSchema, PersistentCache};
+use orphanode::cache::{CacheEntry, CacheLimits, CacheSchema, PersistentCache};
 
 const MAX_INPUT_BYTES: usize = 64 * 1024;
 

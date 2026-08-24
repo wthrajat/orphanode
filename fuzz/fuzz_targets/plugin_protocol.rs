@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use libfuzzer_sys::fuzz_target;
-use orphanode_core::plugins::{
+use orphanode::plugins::{
     DeclarativePlugin, HostRequest, HostResponse, validate_host_request, validate_host_response,
 };
 

@@ -1,7 +1,7 @@
 use std::{fmt::Write as _, hint::black_box, path::Path, time::Duration};
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use orphanode_core::{
+use orphanode::{
     domain::graph::{FileGraph, FileId},
     javascript::parse_file,
 };

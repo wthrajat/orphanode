@@ -13,12 +13,12 @@ use std::{
 };
 
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
-use orphanode_core::{
+use orphanode::{
     AnalysisIssue, DiscoveryError, Explanation, ExplanationStatus, ProjectScanError,
     ProjectScanMetrics, ProjectScanRequest, ProjectStageMetrics, ScanRequest,
     discover_source_files, explain, render_sarif, scan, scan_project, scan_project_measured,
 };
-use orphanode_core::{
+use orphanode::{
     cache::{ContentDigest, Digest},
     discovery::{
         configuration::{
@@ -572,7 +572,7 @@ fn emit_machine_timings(telemetry: &ScanTelemetry, total: Duration) {
 
 fn emit_debug_telemetry(
     telemetry: &ScanTelemetry,
-    report: &orphanode_core::ScanReport,
+    report: &orphanode::ScanReport,
     total: Duration,
 ) {
     for stage in &telemetry.stages {
@@ -640,7 +640,7 @@ fn selected_scan_issues(arguments: &ScanArgs) -> BTreeSet<AnalysisIssue> {
     selected_issues(&arguments.issues)
 }
 
-fn filter_findings(report: &mut orphanode_core::ScanReport, issues: &BTreeSet<AnalysisIssue>) {
+fn filter_findings(report: &mut orphanode::ScanReport, issues: &BTreeSet<AnalysisIssue>) {
     report.findings.retain(|finding| match finding.issue_type {
         "unusedFiles" => issues.contains(&AnalysisIssue::Files),
         "unusedExport" => issues.contains(&AnalysisIssue::Exports),
@@ -713,7 +713,7 @@ struct AnalyzedManifest {
 
 struct FixWorkflowOutput {
     rendered: String,
-    report: Option<orphanode_core::ScanReport>,
+    report: Option<orphanode::ScanReport>,
     revalidation_metrics: Option<ProjectScanMetrics>,
 }
 
@@ -749,7 +749,7 @@ fn capture_analyzed_manifests(root: &Path) -> Result<BTreeMap<String, AnalyzedMa
 #[allow(clippy::too_many_lines)]
 fn run_fix_workflow(
     root: &Path,
-    report: &orphanode_core::ScanReport,
+    report: &orphanode::ScanReport,
     apply: bool,
     arguments: &ScanArgs,
     analyzed_manifests: &BTreeMap<String, AnalyzedManifest>,
@@ -777,7 +777,7 @@ fn run_fix_workflow(
             }
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
-    if apply && report.status != orphanode_core::domain::report::AnalysisStatus::Complete {
+    if apply && report.status != orphanode::domain::report::AnalysisStatus::Complete {
         return Err(CliError::InvalidArguments(
             "refusing to apply fixes while analysis is incomplete; resolve blocking diagnostics first"
                 .to_owned(),
@@ -839,7 +839,7 @@ fn run_fix_workflow(
                 .push(removal);
         }
         if finding.issue_type == "unusedFiles"
-            && finding.fix_eligibility == orphanode_core::domain::report::FixEligibility::Eligible
+            && finding.fix_eligibility == orphanode::domain::report::FixEligibility::Eligible
         {
             for path in &finding.paths {
                 if !requested_fix_files.contains(path) {
@@ -1034,10 +1034,10 @@ fn run_fix_workflow(
 }
 
 fn dependency_fix_can_be_planned(
-    eligibility: orphanode_core::domain::report::FixEligibility,
+    eligibility: orphanode::domain::report::FixEligibility,
     apply: bool,
 ) -> bool {
-    use orphanode_core::domain::report::FixEligibility;
+    use orphanode::domain::report::FixEligibility;
 
     match eligibility {
         FixEligibility::Eligible => true,
@@ -1121,7 +1121,7 @@ struct ProjectRevalidator {
     baseline_findings: BTreeSet<String>,
     baseline_diagnostics: BTreeSet<String>,
     baseline_import_gaps: BTreeSet<String>,
-    report: Option<orphanode_core::ScanReport>,
+    report: Option<orphanode::ScanReport>,
     metrics: Option<ProjectScanMetrics>,
 }
 
@@ -1146,7 +1146,7 @@ impl Revalidator for ProjectRevalidator {
                 self.metrics = Some(output.metrics);
                 let report = output.report;
                 let mut failures = Vec::new();
-                if report.status != orphanode_core::domain::report::AnalysisStatus::Complete {
+                if report.status != orphanode::domain::report::AnalysisStatus::Complete {
                     failures.push(
                         "post-apply analysis is incomplete; inspect blocking diagnostics"
                             .to_owned(),
@@ -1229,7 +1229,7 @@ impl Revalidator for ProjectRevalidator {
     }
 }
 
-fn finding_key(finding: &orphanode_core::domain::report::Finding) -> String {
+fn finding_key(finding: &orphanode::domain::report::Finding) -> String {
     format!(
         "{}:{}:{}:{}:{}:{:?}",
         finding.issue_id,
@@ -1241,7 +1241,7 @@ fn finding_key(finding: &orphanode_core::domain::report::Finding) -> String {
     )
 }
 
-fn diagnostic_key(diagnostic: &orphanode_core::domain::facts::AnalysisDiagnostic) -> String {
+fn diagnostic_key(diagnostic: &orphanode::domain::facts::AnalysisDiagnostic) -> String {
     format!(
         "{}:{}:{:?}:{}:{}",
         diagnostic.code,
@@ -1252,8 +1252,8 @@ fn diagnostic_key(diagnostic: &orphanode_core::domain::facts::AnalysisDiagnostic
     )
 }
 
-fn import_gap_keys(report: &orphanode_core::ScanReport) -> BTreeSet<String> {
-    use orphanode_core::domain::report::ResolutionStatus;
+fn import_gap_keys(report: &orphanode::ScanReport) -> BTreeSet<String> {
+    use orphanode::domain::report::ResolutionStatus;
 
     report
         .files
@@ -1591,8 +1591,8 @@ fn should_use_unicode(ascii: bool) -> bool {
     !ascii && env::var("TERM").map_or(true, |term| term != "dumb")
 }
 
-fn report_exit_code(report: &orphanode_core::ScanReport) -> ExitCode {
-    use orphanode_core::domain::report::{AnalysisStatus, Confidence};
+fn report_exit_code(report: &orphanode::ScanReport) -> ExitCode {
+    use orphanode::domain::report::{AnalysisStatus, Confidence};
 
     if report.status == AnalysisStatus::Incomplete {
         ExitCode::from(2)
@@ -1611,8 +1611,8 @@ fn report_exit_code(report: &orphanode_core::ScanReport) -> ExitCode {
     }
 }
 
-fn confidence_rank(confidence: orphanode_core::domain::report::Confidence) -> u8 {
-    use orphanode_core::domain::report::Confidence;
+fn confidence_rank(confidence: orphanode::domain::report::Confidence) -> u8 {
+    use orphanode::domain::report::Confidence;
 
     match confidence {
         Confidence::Incomplete => 0,
@@ -1655,7 +1655,7 @@ enum CliError {
     Workspace(WorkspaceError),
     Configuration(ConfigurationError),
     Project(ProjectScanError),
-    Scan(orphanode_core::ScanError),
+    Scan(orphanode::ScanError),
     FixPlan(FixPlanError),
     Fix(FixError),
     FixRevalidation(String),
@@ -1739,8 +1739,8 @@ impl Error for CliError {
     }
 }
 
-impl From<orphanode_core::ScanError> for CliError {
-    fn from(error: orphanode_core::ScanError) -> Self {
+impl From<orphanode::ScanError> for CliError {
+    fn from(error: orphanode::ScanError) -> Self {
         Self::Scan(error)
     }
 }
@@ -1789,7 +1789,7 @@ impl From<serde_json::Error> for CliError {
 
 #[cfg(test)]
 mod tests {
-    use orphanode_core::domain::report::FixEligibility;
+    use orphanode::domain::report::FixEligibility;
 
     use super::dependency_fix_can_be_planned;
 

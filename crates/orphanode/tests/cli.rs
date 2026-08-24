@@ -408,7 +408,7 @@ impl TestProject {
     fn new(label: &str) -> Self {
         let sequence = TEST_PROJECT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "orphanode-cli-{label}-{}-{sequence}",
+            "orphanode-{label}-{}-{sequence}",
             std::process::id()
         ));
         fs::create_dir(&root).expect("create isolated test project");
