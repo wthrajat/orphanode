@@ -1,6 +1,6 @@
-# OrphaNode
+# Orphanode
 
-[OrphaNode](https://github.com/wthrajat/orphanode) is accuracy-first
+[Orphanode](https://github.com/wthrajat/orphanode) is accuracy-first
 reachability analysis for JavaScript and TypeScript projects: find the code
 that nothing can reach anymore, with evidence.
 

@@ -1,6 +1,6 @@
-# Contributing to OrphaNode
+# Contributing to Orphanode
 
-Thanks for helping make OrphaNode more accurate and useful.
+Thanks for helping make Orphanode more accurate and useful.
 
 ## Before you start
 

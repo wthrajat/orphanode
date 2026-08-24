@@ -30,7 +30,7 @@ issue tracker.
 
 ## Security boundaries
 
-An ordinary OrphaNode scan:
+An ordinary Orphanode scan:
 
 - does not execute project source, package scripts, or dynamic configuration;
 - makes no network requests and collects no telemetry;
@@ -48,5 +48,5 @@ have the current user's operating-system permissions; time, path, and protocol
 limits are not a security sandbox.
 
 Fixes require explicit item selection, eligibility, current content hashes, and
-a complete post-change scan. Run OrphaNode with least-privilege filesystem access
+a complete post-change scan. Run Orphanode with least-privilege filesystem access
 and review every proposed removal.

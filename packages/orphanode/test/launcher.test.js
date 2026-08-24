@@ -249,7 +249,7 @@ function createPlatformFixture(target) {
   const binaryPath = path.join(packageDirectory, target.binary);
   const checksumPath = path.join(packageDirectory, target.checksum);
   mkdirSync(path.dirname(binaryPath), { recursive: true });
-  const fakeBinary = Buffer.from("fake packaged OrphaNode binary\n");
+  const fakeBinary = Buffer.from("fake packaged Orphanode binary\n");
   writeFileSync(binaryPath, fakeBinary);
   chmodSync(binaryPath, 0o755);
   const checksum = createHash("sha256").update(fakeBinary).digest("hex");

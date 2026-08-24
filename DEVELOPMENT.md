@@ -1,4 +1,4 @@
-# Developing OrphaNode
+# Developing Orphanode
 
 This document is for contributors and maintainers. The user-facing command guide
 is in [README.md](README.md).

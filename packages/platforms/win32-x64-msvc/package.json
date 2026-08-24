@@ -1,9 +1,9 @@
 {
   "name": "@orphanode/win32-x64-msvc",
   "version": "0.1.0",
-  "description": "OrphaNode native binary for 64-bit Windows MSVC",
+  "description": "Orphanode native binary for 64-bit Windows MSVC",
   "license": "MIT OR Apache-2.0",
-  "author": "OrphaNode contributors",
+  "author": "Orphanode contributors",
   "homepage": "https://github.com/wthrajat/orphanode",
   "repository": {
     "type": "git",

@@ -15,7 +15,7 @@ pub fn render_sarif(report: &ScanReport) -> Value {
         "runs": [{
             "tool": {
                 "driver": {
-                    "name": "OrphaNode",
+                    "name": "Orphanode",
                     "informationUri": "https://github.com/wthrajat/orphanode",
                     "semanticVersion": env!("CARGO_PKG_VERSION"),
                     "rules": [
@@ -207,7 +207,7 @@ mod tests {
 
         let sarif = render_sarif(&report);
         assert_eq!(sarif["version"], "2.1.0");
-        assert_eq!(sarif["runs"][0]["tool"]["driver"]["name"], "OrphaNode");
+        assert_eq!(sarif["runs"][0]["tool"]["driver"]["name"], "Orphanode");
         assert_eq!(sarif["runs"][0]["properties"]["analysisStatus"], "complete");
     }
 

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Accuracy-first reachability analysis for JavaScript and TypeScript",
   "license": "MIT OR Apache-2.0",
-  "author": "OrphaNode contributors",
+  "author": "Orphanode contributors",
   "homepage": "https://github.com/wthrajat/orphanode",
   "repository": {
     "type": "git",

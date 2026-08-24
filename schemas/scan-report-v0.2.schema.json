@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://orphanode.dev/schema/report-v0.2.json",
-  "title": "OrphaNode scan report",
+  "title": "Orphanode scan report",
   "type": "object",
   "additionalProperties": false,
   "required": [

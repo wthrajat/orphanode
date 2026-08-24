@@ -98,7 +98,7 @@ jobs:
         env:
           TYPESCRIPT_PATH: ${{ runner.temp }}/resolver-tools/node_modules/typescript
         run: node fixtures/reference/check-references.mjs
-      - name: Compare OrphaNode with Node.js and TypeScript
+      - name: Compare Orphanode with Node.js and TypeScript
         shell: bash
         run: >-
           node benchmarks/resolver-differential.mjs

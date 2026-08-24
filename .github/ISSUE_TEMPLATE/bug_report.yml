@@ -6,7 +6,7 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: Thanks for helping improve OrphaNode. Please remove private source code from examples and logs.
+      value: Thanks for helping improve Orphanode. Please remove private source code from examples and logs.
 
   - type: textarea
     id: summary
@@ -19,7 +19,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: OrphaNode version
+      label: Orphanode version
       placeholder: "0.1.0 or commit SHA"
     validations:
       required: true

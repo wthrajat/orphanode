@@ -21,7 +21,7 @@ try {
   await compareReviewedNodeCorpus();
   await compareTypeScriptResolution();
   await compareTypeScriptUnicodeResolution();
-  console.log("OrphaNode resolver results match Node.js and TypeScript for the fixture corpus");
+  console.log("Orphanode resolver results match Node.js and TypeScript for the fixture corpus");
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }

@@ -1,6 +1,6 @@
 # `@orphanode/darwin-arm64`
 
-This package contains the OrphaNode native binary for
+This package contains the Orphanode native binary for
 `aarch64-apple-darwin`.
 
 It is selected automatically as an optional dependency of

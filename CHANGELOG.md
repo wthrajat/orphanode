@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to OrphaNode are recorded here. The project follows
+Notable changes to Orphanode are recorded here. The project follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 

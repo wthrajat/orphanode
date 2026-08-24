@@ -109,7 +109,7 @@ function selectTarget(runtime = {}) {
     const libcDetail = nodePlatform === "linux" ? `, libc=${libc}` : "";
     throw new LauncherError(
       "ORPHANODE_UNSUPPORTED_PLATFORM",
-      `No OrphaNode native binary is published for platform=${nodePlatform}, ` +
+      `No Orphanode native binary is published for platform=${nodePlatform}, ` +
         `arch=${nodeArch}${libcDetail}. Supported targets: ` +
         `${supportedTargets.join(", ")}.`,
     );

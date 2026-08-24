@@ -1,6 +1,6 @@
 # `@orphanode/linux-x64-gnu`
 
-This package contains the OrphaNode native binary for
+This package contains the Orphanode native binary for
 `x86_64-unknown-linux-gnu`.
 
 It is selected automatically as an optional dependency of

@@ -1,9 +1,9 @@
 {
   "name": "@orphanode/darwin-arm64",
   "version": "0.1.0",
-  "description": "OrphaNode native binary for Apple silicon macOS",
+  "description": "Orphanode native binary for Apple silicon macOS",
   "license": "MIT OR Apache-2.0",
-  "author": "OrphaNode contributors",
+  "author": "Orphanode contributors",
   "homepage": "https://github.com/wthrajat/orphanode",
   "repository": {
     "type": "git",

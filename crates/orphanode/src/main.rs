@@ -60,7 +60,7 @@ enum Command {
     /// Explain why a file or package is retained, reported, or incomplete.
     Why(WhyArgs),
 
-    /// Describe an `OrphaNode` issue code and its safety policy.
+    /// Describe an `Orphanode` issue code and its safety policy.
     Explain(ExplainArgs),
 
     /// Validate and display the effective static project configuration.
@@ -1434,14 +1434,14 @@ fn run_cache(arguments: &CacheArgs) -> Result<ExitCode, CliError> {
                         path: cache.clone(),
                         source,
                     })?;
-                    write_stdout("OrphaNode cache link/file removed.")?;
+                    write_stdout("Orphanode cache link/file removed.")?;
                 }
                 Ok(metadata) if metadata.is_dir() => {
                     fs::remove_dir_all(&cache).map_err(|source| CliError::CacheIo {
                         path: cache.clone(),
                         source,
                     })?;
-                    write_stdout("OrphaNode cache removed.")?;
+                    write_stdout("Orphanode cache removed.")?;
                 }
                 Ok(_) => {
                     return Err(CliError::InvalidArguments(format!(
@@ -1450,7 +1450,7 @@ fn run_cache(arguments: &CacheArgs) -> Result<ExitCode, CliError> {
                     )));
                 }
                 Err(source) if source.kind() == io::ErrorKind::NotFound => {
-                    write_stdout("OrphaNode cache is already empty.")?;
+                    write_stdout("Orphanode cache is already empty.")?;
                 }
                 Err(source) => {
                     return Err(CliError::CacheIo {

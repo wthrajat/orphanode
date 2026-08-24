@@ -1,8 +1,8 @@
-# OrphaNode
+<h1><img src="docs/assets/orphanode.svg" height="44" valign="middle" alt="orphanode logo"> orphanode</h1>
 
 Find dead code in JavaScript and TypeScript projects, without the false positives.
 
-OrphaNode builds a real reachability graph of your project. It follows imports,
+Orphanode builds a real reachability graph of your project. It follows imports,
 exports, declarations, class members, dependencies, and workspace packages from
 actual entry points. If it can't prove code is unused, it doesn't report it.
 It tells you what it couldn't see instead.
@@ -108,7 +108,7 @@ Dead code tools are easy to write and hard to trust. Most of them pattern match,
 hand you 400 suspects, and wish you good luck. So you end up deleting nothing
 and keeping that one util file from 2021 around forever lol.
 
-OrphaNode takes the slower route: resolve every import properly (package
+Orphanode takes the slower route: resolve every import properly (package
 exports, tsconfig path aliases, ESM conditions, workspace boundaries), build the
 graph, then report only what nothing can reach. Every finding ships with the
 evidence chain behind it. And when something is genuinely ambiguous, like a
@@ -175,7 +175,7 @@ to stay inside these budgets or the release gets blocked
 
 Static analysis can't see everything, and pretending otherwise is how you get
 tools that delete production code lol. Reflection, computed requires, custom
-loaders, Vue/Svelte single-file components, executable config files: OrphaNode
+loaders, Vue/Svelte single-file components, executable config files: Orphanode
 either handles them or says so. Anything it can't fully model becomes a
 diagnostic, and findings those gaps could invalidate get suppressed.
 

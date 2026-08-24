@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": false,
   "type": "module",
-  "description": "Optional TypeScript fact worker for OrphaNode deep analysis",
+  "description": "Optional TypeScript fact worker for Orphanode deep analysis",
   "bin": {
     "orphanode-typescript-worker": "./src/worker.mjs"
   },

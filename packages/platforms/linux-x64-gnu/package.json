@@ -1,9 +1,9 @@
 {
   "name": "@orphanode/linux-x64-gnu",
   "version": "0.1.0",
-  "description": "OrphaNode native binary for 64-bit GNU/Linux",
+  "description": "Orphanode native binary for 64-bit GNU/Linux",
   "license": "MIT OR Apache-2.0",
-  "author": "OrphaNode contributors",
+  "author": "Orphanode contributors",
   "homepage": "https://github.com/wthrajat/orphanode",
   "repository": {
     "type": "git",

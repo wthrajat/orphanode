@@ -1628,7 +1628,7 @@ fn collect_package_entries(
     for entry in configured_entries {
         add_entry_candidate(
             &package.root.join(entry),
-            "static OrphaNode configuration",
+            "static Orphanode configuration",
             project_configurations,
             file_set,
             entries,

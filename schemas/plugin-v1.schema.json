@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://orphanode.dev/schema/plugin-v1.json",
-  "title": "OrphaNode declarative plugin v1",
+  "title": "Orphanode declarative plugin v1",
   "description": "Static plugin facts. A plugin contributes evidence and roots; it does not decide liveness or suppress findings.",
   "type": "object",
   "additionalProperties": false,

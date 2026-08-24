@@ -1,8 +1,8 @@
-# OrphaNode
+# Orphanode
 
 Find unused JavaScript and TypeScript without running your application.
 
-OrphaNode reports unreachable files, unused exports, declarations, class
+Orphanode reports unreachable files, unused exports, declarations, class
 members, dependencies, and private workspace packages. When static analysis is
 incomplete, it reports the gap instead of guessing.
 
@@ -51,7 +51,7 @@ orphanode scan --issues files --fix --fix-file src/unused.ts
 ```
 
 `--fix` is preview-only. Add `--apply` to authorize the selected eligible plan;
-OrphaNode checks current hashes and performs a complete post-change scan.
+Orphanode checks current hashes and performs a complete post-change scan.
 
 `balanced` is the default analysis mode. Use `--mode fast` for a more
 conservative quick scan or `--mode deep` for additional TypeScript member facts.

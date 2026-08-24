@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://orphanode.dev/schema/config-v1.json",
-  "title": "OrphaNode configuration v1",
+  "title": "Orphanode configuration v1",
   "description": "Static configuration accepted in orphanode.jsonc or under package.json's orphanode key.",
   "type": "object",
   "additionalProperties": false,

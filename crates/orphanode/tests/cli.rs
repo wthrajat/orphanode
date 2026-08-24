@@ -161,7 +161,7 @@ fn sarif_output_uses_the_standard_contract() {
 
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(sarif["version"], "2.1.0");
-    assert_eq!(sarif["runs"][0]["tool"]["driver"]["name"], "OrphaNode");
+    assert_eq!(sarif["runs"][0]["tool"]["driver"]["name"], "Orphanode");
     assert_eq!(sarif["runs"][0]["results"][0]["ruleId"], "ORP1001");
 }
 

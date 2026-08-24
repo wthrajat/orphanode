@@ -236,7 +236,7 @@ impl FixEngine {
         let mut command_results = Vec::new();
         for command in &preview.plan.package_commands {
             // Keep the manifest precondition adjacent to process execution. The
-            // package manager, not OrphaNode, remains the only lockfile writer.
+            // package manager, not Orphanode, remains the only lockfile writer.
             self.verify_package_command(command)?;
             let result = command_executor.execute(&self.project_root, command);
             let success = result.success;
