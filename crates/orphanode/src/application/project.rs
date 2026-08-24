@@ -4217,8 +4217,8 @@ fn typescript_worker_script() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|path| path.is_file())
         .or_else(|| {
-            let development_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../packages/typescript-worker/src/worker.mjs");
+            let development_path =
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../worker/src/worker.mjs");
             development_path.is_file().then_some(development_path)
         })
 }

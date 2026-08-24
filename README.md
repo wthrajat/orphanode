@@ -8,19 +8,19 @@ actual entry points. If it can't prove code is unused, it doesn't report it.
 It tells you what it couldn't see instead.
 
 [![crates.io](https://img.shields.io/crates/v/orphanode?logo=rust&label=crates.io)](https://crates.io/crates/orphanode)
-[![npm](https://img.shields.io/npm/v/orphanode?logo=npm)](https://www.npmjs.com/package/orphanode)
 [![CI](https://github.com/wthrajat/orphanode/actions/workflows/ci.yml/badge.svg)](https://github.com/wthrajat/orphanode/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/orphanode)](LICENSE-MIT)
 
 ## Install
 
-```sh
-npm install --global orphanode   # prebuilt binaries for macOS, Linux, Windows
-```
+From crates.io:
 
 ```sh
 cargo install orphanode          # Rust 1.95+
 ```
+
+Or grab a prebuilt binary for macOS, Linux, or Windows from the
+[releases page](https://github.com/wthrajat/orphanode/releases).
 
 ## Quick start
 
@@ -284,8 +284,8 @@ Analysis modes:
 - `deep`: asks an isolated TypeScript worker for extra member and override
   facts. No worker available? Affected code stays, with an explanation.
 
-The npm install wires up the worker automatically. Source builds can point
-`ORPHANODE_TYPESCRIPT_WORKER` at the worker path.
+Deep mode needs the worker script from this repo plus a compatible TypeScript
+installation. Point `ORPHANODE_TYPESCRIPT_WORKER` at `worker/src/worker.mjs`.
 
 Cache lives at `.orphanode/cache` in the project root:
 

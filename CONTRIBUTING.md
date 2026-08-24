@@ -23,8 +23,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
 cargo test --workspace --doc
-npm test --prefix packages/orphanode
-npm test --prefix packages/typescript-worker
+node --test "worker/test/*.test.mjs"
 ```
 
 If a command cannot run, include the command and exact blocker in the pull

@@ -20,9 +20,8 @@ human/JSON/SARIF output, explanations, configuration checks, cache management,
 and explicitly selected safe-fix previews.
 
 See the [complete command guide](https://github.com/wthrajat/orphanode#readme)
-for every option and example. The command-line binary is also distributed
-through npm (`npm install -g orphanode`) with prebuilt binaries for common
-platforms.
+for every option and example. Prebuilt binaries for common platforms are
+available on the [releases page](https://github.com/wthrajat/orphanode/releases).
 
 ## Use it as a library
 

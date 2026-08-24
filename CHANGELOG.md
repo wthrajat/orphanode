@@ -6,6 +6,13 @@ Notable changes to Orphanode are recorded here. The project follows
 
 ## [Unreleased]
 
+### Removed
+
+- The npm distribution (launcher, platform packages, and worker packaging).
+  Install through crates.io (`cargo install orphanode`) or prebuilt binaries on
+  the GitHub releases page. The deep-analysis worker remains in the repository
+  at `worker/` as a plain script.
+
 ### Changed
 
 - Merged the `orphanode-core` library and `orphanode-cli` binary into a single

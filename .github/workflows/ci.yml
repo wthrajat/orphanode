@@ -124,8 +124,8 @@ jobs:
           command: check
           rust-version: "1.95.0"
 
-  npm-packages:
-    name: npm package tests
+  worker-tests:
+    name: Worker tests
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -137,10 +137,8 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.11.1
-      - name: Test launcher and package distribution
-        run: npm test --prefix packages/orphanode
-      - name: Test TypeScript worker protocol
-        run: npm test --prefix packages/typescript-worker
+      - name: Test the deep-analysis worker protocol
+        run: node --test "worker/test/*.test.mjs"
 
   report-contract:
     name: JSON schema and determinism
@@ -205,54 +203,6 @@ jobs:
           node benchmarks/resolver-differential.mjs
           --binary target/debug/orphanode
           --typescript "$RUNNER_TEMP/resolver-tools/node_modules/typescript/lib/typescript.js"
-
-  npm-smoke:
-    name: npm smoke (${{ matrix.platform }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            platform: linux-x64-gnu
-            binary: orphanode
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            platform: darwin-arm64
-            binary: orphanode
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            platform: darwin-x64
-            binary: orphanode
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            platform: win32-x64-msvc
-            binary: orphanode.exe
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install stable Rust target
-        shell: bash
-        run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup target add --toolchain stable "${{ matrix.target }}"
-      - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.11.1
-      - name: Build native binary
-        run: cargo +stable build --release --package orphanode --target ${{ matrix.target }}
-      - name: Pack, install, and smoke-test local npm packages
-        shell: bash
-        run: >-
-          node benchmarks/npm-smoke.mjs smoke
-          --platform ${{ matrix.platform }}
-          --binary target/${{ matrix.target }}/release/${{ matrix.binary }}
-          --output "$RUNNER_TEMP/orphanode-npm"
 
   benchmark:
     name: Performance budgets

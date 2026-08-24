@@ -6,15 +6,14 @@ is in [README.md](README.md).
 ## Requirements
 
 - Rust 1.95 or newer with `rustfmt` and Clippy
-- Node.js 24.11.1 for the same npm test environment used by CI
-- npm for launcher and TypeScript-worker tests
+- Node.js 24.11.1 for the deep-analysis worker tests
 - A local TypeScript 5.9.3 installation for the reference resolver checks
 
 Build and run the CLI:
 
 ```sh
 cargo build --workspace
-cargo run -- scan -- scan --root fixtures/esm --files-from files.json
+cargo run -- scan --root fixtures/esm --files-from files.json
 ```
 
 The fixture intentionally contains an unreachable file, so the scan exits `1`.
@@ -40,9 +39,7 @@ workspace, manifest, config, script, and plugin discovery
   parsing, resolution, graph policy, caching, plugins, fixes, and the report
   model; its binary target owns arguments, terminal rendering, process
   execution, output, and exit codes.
-- `packages/orphanode` is the dependency-minimal npm launcher.
-- `packages/platforms/*` are native npm packages.
-- `packages/typescript-worker` is the optional deep-analysis worker.
+- `worker/` is the optional deep-analysis worker, a plain Node.js script.
 - `schemas` contains public configuration, plugin, and report contracts.
 - `fixtures`, `benchmarks`, and `fuzz` contain validation assets.
 
@@ -103,8 +100,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
 cargo test --workspace --doc
-npm test --prefix packages/orphanode
-npm test --prefix packages/typescript-worker
+node --test "worker/test/*.test.mjs"
 ```
 
 Check the separate fuzz workspace formatting and metadata:
@@ -118,7 +114,7 @@ Run the reviewed resolver references with a TypeScript 5.9.3 installation:
 
 ```sh
 TYPESCRIPT_PATH=/path/to/typescript/lib/typescript.js \
-  npm test --prefix fixtures/reference
+  node fixtures/reference/check-references.mjs
 ```
 
 Run microbenchmarks:
@@ -152,8 +148,8 @@ changelog together.
 
 The CI workflow runs formatting, Clippy, documentation, unit/integration tests on
 Linux, macOS, and Windows, the Rust 1.95 check, dependency policy, crate packaging,
-npm packaging, report-schema validation, determinism, resolver differential
-checks, cross-platform npm smoke tests, and the performance gate. A separate
+worker protocol tests, report-schema validation, determinism, resolver differential
+checks, and the performance gate. A separate
 scheduled workflow runs bounded fuzz campaigns.
 
 ## Caches and generated files
@@ -173,13 +169,16 @@ The release workflow coordinates:
 1. validation and one generated Cargo lock artifact;
 2. bounded release fuzzing and the performance gate;
 3. native builds for GNU/Linux x64, macOS arm64/x64, and Windows x64;
-4. checksum, npm install, and executable smoke tests;
-5. `orphanode` on crates.io;
-6. four native npm packages, the TypeScript worker, then `orphanode`;
-7. checksummed archives, SBOM, build attestations, and the GitHub release.
+4. checksum and executable smoke tests;
+5. checksummed archives, SBOM, build attestations, and the GitHub release.
 
-Publishing is an external operation requiring the configured GitHub environments,
-trusted publishers, credentials, and a matching version tag.
+Publishing to crates.io is a manual maintainer step:
+
+```sh
+cargo publish --locked --package orphanode
+```
+
+Run it from the exact release tag commit after the release workflow passes.
 
 ## Pull requests
 
