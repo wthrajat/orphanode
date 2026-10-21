@@ -20,7 +20,7 @@ publish = ["crates-io"]
 [workspace.dependencies]
 clap = { version = "4.6.5", features = ["derive"] }
 ignore = "0.4.23"
-oxc_allocator = "=0.144.0"
+oxc_allocator = "=0.146.0"
 oxc_ast = "=0.144.0"
 oxc_ast_visit = "=0.144.0"
 oxc_diagnostics = "=0.144.0"
