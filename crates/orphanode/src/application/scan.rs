@@ -9,6 +9,7 @@ use std::{
 
 use serde::Deserialize;
 use thiserror::Error;
+use tracing::field::Empty;
 
 use crate::{
     analysis::{
@@ -435,6 +436,7 @@ fn scan_internal(
     measurements.fact_loading = parse_measurements.fact_loading;
     measurements.cache_persist = parse_measurements.cache_persist;
     enforce_diagnostic_limit(&mut facts, limits.max_diagnostics.max(1));
+    let module_span = tracing::info_span!("module_resolution", imports = Empty).entered();
     let module_started = Instant::now();
     let resolver = if yarn_pnp {
         OxcModuleResolver::for_profiles_with_yarn_pnp(target_profiles, &root)
@@ -458,6 +460,9 @@ fn scan_internal(
         duration: module_started.elapsed(),
         count: imports.iter().map(Vec::len).sum(),
     };
+    module_span.record("imports", measurements.module_resolution_graph.count);
+    drop(module_span);
+    let reachability_span = tracing::info_span!("reachability", findings = Empty).entered();
     let reachability_started = Instant::now();
     let reachable = graph.reachable_from_many(&entry_ids);
 
@@ -579,6 +584,8 @@ fn scan_internal(
         duration: reachability_started.elapsed(),
         count: report.findings.len(),
     };
+    reachability_span.record("findings", report.findings.len());
+    drop(reachability_span);
     Ok((report, measurements))
 }
 
@@ -704,6 +711,13 @@ fn parse_files(
     limits: AnalysisLimits,
     cache: Option<&FactCache>,
 ) -> Result<ParsedFiles, ScanError> {
+    let parse_span = tracing::info_span!(
+        "parse_files",
+        files = prepared_files.len(),
+        cache_hits = Empty,
+        cache_misses = Empty,
+    )
+    .entered();
     let fact_loading_started = Instant::now();
     let snapshot = cache.map(|cache| cache.store.load()).transpose()?;
     let cache_status = snapshot.as_ref().map(|snapshot| match &snapshot.status {
@@ -807,6 +821,9 @@ fn parse_files(
     }
     parse_pending_files(&mut pending, &mut parsed, limits)?;
     let fact_loading_duration = fact_loading_started.elapsed();
+    parse_span.record("cache_hits", hits);
+    parse_span.record("cache_misses", misses);
+    drop(parse_span);
 
     let mut facts = Vec::with_capacity(parsed.len());
     let mut content_digests = Vec::with_capacity(parsed.len());
@@ -838,6 +855,8 @@ fn parse_files(
     }
 
     let persisted_entry_count = cache_entries.len();
+    let persist_span =
+        tracing::info_span!("cache_persist", entries = persisted_entry_count).entered();
     let persist_started = Instant::now();
     let generation_written = if let Some(cache) = cache
         && misses > 0
@@ -848,6 +867,7 @@ fn parse_files(
         false
     };
     let persist_duration = persist_started.elapsed();
+    drop(persist_span);
     let report = cache.map(|_| CacheReport {
         status: cache_status.unwrap_or("empty").to_owned(),
         hits,

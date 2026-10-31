@@ -29,9 +29,19 @@ oxc_parser = "=0.144.0"
 oxc_resolver = { version = "=11.24.2", features = ["yarn_pnp"] }
 oxc_semantic = "=0.144.0"
 oxc_span = "=0.144.0"
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "http-json", "reqwest-blocking-client", "reqwest-rustls"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
+posthog-rs = { git = "https://github.com/wthrajat/posthog-rs", branch = "feat/tracing-span-context", features = ["mcp"] }
+posthog-rs-otel = { git = "https://github.com/wthrajat/posthog-rs", branch = "feat/tracing-span-context" }
+rmcp = { version = "3.7.0", default-features = false, features = ["server", "macros", "transport-io"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.19"
+tracing = "0.1"
+tracing-opentelemetry = { version = "0.34", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "io-std"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

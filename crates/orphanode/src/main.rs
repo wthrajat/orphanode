@@ -1,3 +1,5 @@
+#[cfg(feature = "mcp")]
+mod mcp;
 mod render;
 
 use std::{
@@ -68,6 +70,10 @@ enum Command {
 
     /// Inspect or clean the project-local persistent cache.
     Cache(CacheArgs),
+
+    /// Serve scan and why as tools for coding agents, over MCP on stdio.
+    #[cfg(feature = "mcp")]
+    Mcp,
 }
 
 #[derive(Debug, Args)]
@@ -316,6 +322,8 @@ fn run() -> Result<ExitCode, CliError> {
         Command::Explain(arguments) => run_explain(&arguments),
         Command::Config(arguments) => run_config(&arguments),
         Command::Cache(arguments) => run_cache(&arguments),
+        #[cfg(feature = "mcp")]
+        Command::Mcp => mcp::run(),
     }
 }
 
@@ -1665,6 +1673,8 @@ enum CliError {
     },
     Serialize(serde_json::Error),
     WriteOutput(io::Error),
+    #[cfg(feature = "mcp")]
+    Mcp(String),
 }
 
 impl CliError {
@@ -1684,6 +1694,8 @@ impl CliError {
             | Self::CacheIo { .. }
             | Self::Serialize(_)
             | Self::WriteOutput(_) => ExitCode::from(3),
+            #[cfg(feature = "mcp")]
+            Self::Mcp(_) => ExitCode::from(3),
         }
     }
 }
@@ -1716,6 +1728,8 @@ impl fmt::Display for CliError {
             }
             Self::Serialize(error) => write!(formatter, "cannot serialize report: {error}"),
             Self::WriteOutput(error) => write!(formatter, "cannot write report: {error}"),
+            #[cfg(feature = "mcp")]
+            Self::Mcp(message) => write!(formatter, "MCP server failed: {message}"),
         }
     }
 }
@@ -1735,6 +1749,8 @@ impl Error for CliError {
             Self::FixPlan(source) => Some(source),
             Self::Fix(source) => Some(source),
             Self::InvalidArguments(_) | Self::FixRevalidation(_) => None,
+            #[cfg(feature = "mcp")]
+            Self::Mcp(_) => None,
         }
     }
 }

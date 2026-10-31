@@ -38,6 +38,29 @@ oxc_span.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+posthog-rs = { workspace = true, optional = true }
+posthog-rs-otel = { workspace = true, optional = true }
+rmcp = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+
+[features]
+mcp = [
+    "dep:opentelemetry",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry_sdk",
+    "dep:posthog-rs",
+    "dep:posthog-rs-otel",
+    "dep:rmcp",
+    "dep:tokio",
+    "dep:tracing-opentelemetry",
+    "dep:tracing-subscriber",
+]
 
 [dev-dependencies]
 criterion = "=0.8.2"

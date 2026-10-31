@@ -12,6 +12,7 @@ use ignore::{WalkBuilder, gitignore::GitignoreBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
+use tracing::field::Empty;
 
 use crate::{
     analysis::dependencies::{
@@ -330,6 +331,7 @@ pub fn scan_project_measured(
     request: &ProjectScanRequest,
 ) -> Result<ProjectScanOutput, ProjectScanError> {
     let mut metrics = ProjectScanMetrics::default();
+    let stage_span = tracing::info_span!("workspace_discovery", packages = Empty).entered();
     let stage_started = Instant::now();
     let workspace = discover_workspace(&request.root)?;
     let selected = selected_packages(&workspace, request.workspace.as_deref())?;
@@ -337,7 +339,10 @@ pub fn scan_project_measured(
         duration: stage_started.elapsed(),
         count: selected.len(),
     };
+    stage_span.record("packages", selected.len());
+    drop(stage_span);
 
+    let stage_span = tracing::info_span!("configuration_loading").entered();
     let stage_started = Instant::now();
     let loaded_configuration = load_orphanode_configuration(&workspace.workspace_root)?;
     let project_configurations = discover_project_configurations(&workspace.workspace_root)?;
@@ -345,7 +350,9 @@ pub fn scan_project_measured(
         duration: stage_started.elapsed(),
         count: loaded_configuration.sources.len() + project_configurations.len(),
     };
+    drop(stage_span);
 
+    let stage_span = tracing::info_span!("file_discovery", files = Empty).entered();
     let stage_started = Instant::now();
     let mut files = discover_workspace_files(&workspace, &selected, request.limits)?;
     if files.is_empty() {
@@ -355,7 +362,10 @@ pub fn scan_project_measured(
         duration: stage_started.elapsed(),
         count: files.len(),
     };
+    stage_span.record("files", files.len());
+    drop(stage_span);
 
+    let plugin_span = tracing::info_span!("plugin_discovery").entered();
     let mut contexts = Vec::new();
     let mut pending_diagnostics = Vec::new();
     let cli_override = cli_configuration(request);
@@ -465,6 +475,9 @@ pub fn scan_project_measured(
         files.clone()
     };
     metrics.plugin_discovery.duration += transform_discovery_started.elapsed();
+    drop(plugin_span);
+
+    let entry_span = tracing::info_span!("entry_collection").entered();
     let pre_ignore_files = files.clone();
     apply_ignore_rules(&mut files, &workspace, &contexts);
     if files.is_empty() {
@@ -505,9 +518,11 @@ pub fn scan_project_measured(
         .into_bytes();
     let cache = FactCache::new(&workspace.workspace_root, &config_bytes, &profile_bytes)
         .map_err(ScanError::from)?;
+    drop(entry_span);
     let mut profile_reports = Vec::new();
     let profile_started = Instant::now();
     for profile in &profiles {
+        let _profile_span = tracing::info_span!("profile_analysis", profile = %profile).entered();
         let entries = entries_by_profile
             .get(profile)
             .cloned()
@@ -565,6 +580,9 @@ pub fn scan_project_measured(
                 .cloned()
                 .collect::<BTreeSet<_>>();
             if !uncached_candidates.is_empty() {
+                let _deep_span =
+                    tracing::info_span!("deep_analysis", candidates = uncached_candidates.len())
+                        .entered();
                 let deep_started = Instant::now();
                 let (additional_evidence, diagnostic) = collect_deep_member_evidence(
                     DeepMemberEvidenceRequest {
@@ -606,6 +624,7 @@ pub fn scan_project_measured(
     };
     let mut report = merge_profile_reports(profile_reports)?;
 
+    let policy_span = tracing::info_span!("policy").entered();
     let policy_started = Instant::now();
     assign_project_context(&mut report, &workspace, &profiles);
     append_configuration_diagnostics(
@@ -700,6 +719,7 @@ pub fn scan_project_measured(
         duration: policy_started.elapsed(),
         count: report.findings.len() + report.retentions.len() + report.diagnostics.len(),
     };
+    drop(policy_span);
     if let Some(cache) = &report.cache {
         metrics.cache.hits += cache.hits;
         metrics.cache.misses += cache.misses;
