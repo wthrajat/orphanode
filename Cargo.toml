@@ -26,7 +26,7 @@ oxc_ast_visit = "=0.144.0"
 oxc_diagnostics = "=0.144.0"
 oxc_ecmascript = "=0.144.0"
 oxc_parser = "=0.144.0"
-oxc_resolver = { version = "=11.24.2", features = ["yarn_pnp"] }
+oxc_resolver = { version = "=11.24.3", features = ["yarn_pnp"] }
 oxc_semantic = "=0.144.0"
 oxc_span = "=0.144.0"
 serde = { version = "1.0.229", features = ["derive"] }
