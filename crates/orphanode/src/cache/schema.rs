@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-pub const CACHE_SCHEMA_VERSION: u32 = 1;
+// UTF-8 payloads use JSON strings rather than arrays of byte values.
+pub const CACHE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -275,6 +275,58 @@ fn repeated_project_scan_reuses_fact_cache_without_changing_analysis() {
     assert_eq!(first_value, second_value);
 }
 
+#[test]
+fn file_changes_invalidate_persistent_facts_and_match_a_clean_scan() {
+    let project = TestProject::from_fixture("project-config");
+    let request = node_request(project.root());
+    let source = project.root().join("src/reported.js");
+    fs::write(&source, "export const original = 1;\n").expect("write original source");
+    let first = scan_project(&request).expect("first scan");
+    let original_digest = first
+        .files
+        .iter()
+        .find(|file| file.path == "src/reported.js")
+        .expect("original file")
+        .content_digest
+        .clone();
+    let warm = scan_project(&request).expect("warm scan");
+    assert_eq!(warm.cache.as_ref().unwrap().misses, 0);
+
+    fs::write(&source, "export const modified = 1;\n").expect("write same-size changed source");
+    let mut changed = scan_project(&request).expect("changed scan");
+    let cache = changed.cache.as_ref().expect("changed cache report");
+    assert_eq!(cache.misses, 1);
+    assert_eq!(cache.hits, changed.files.len() - 1);
+    assert!(cache.generation_written);
+    let changed_file = changed
+        .files
+        .iter()
+        .find(|file| file.path == "src/reported.js")
+        .expect("changed file");
+    assert_ne!(changed_file.content_digest, original_digest);
+    assert!(
+        changed_file
+            .exports
+            .iter()
+            .any(|export| export.name == "modified")
+    );
+    assert!(
+        !changed_file
+            .exports
+            .iter()
+            .any(|export| export.name == "original")
+    );
+
+    fs::remove_dir_all(project.root().join(".orphanode/cache")).expect("clear persistent cache");
+    let mut clean = scan_project(&request).expect("clean changed scan");
+    changed.cache = None;
+    clean.cache = None;
+    assert_eq!(
+        serde_json::to_vec(&changed).unwrap(),
+        serde_json::to_vec(&clean).unwrap()
+    );
+}
+
 fn node_request(root: &Path) -> ProjectScanRequest {
     let mut request = ProjectScanRequest::new(root);
     request.target_profiles = vec!["node".to_owned()];

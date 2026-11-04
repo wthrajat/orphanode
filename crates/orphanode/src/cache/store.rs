@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
 use super::{CacheKey, CacheSchema, Digest};
@@ -63,6 +63,10 @@ impl CacheLimits {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CacheEntry {
     pub key: CacheKey,
+    #[serde(
+        serialize_with = "serialize_payload",
+        deserialize_with = "deserialize_payload"
+    )]
     pub payload: Vec<u8>,
 }
 
@@ -71,6 +75,27 @@ impl CacheEntry {
     pub fn new(key: CacheKey, payload: Vec<u8>) -> Self {
         Self { key, payload }
     }
+}
+
+fn serialize_payload<S: Serializer>(payload: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+    match std::str::from_utf8(payload) {
+        Ok(text) => serializer.serialize_str(text),
+        Err(_) => payload.serialize(serializer),
+    }
+}
+
+fn deserialize_payload<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Payload {
+        Text(String),
+        Bytes(Vec<u8>),
+    }
+
+    Ok(match Payload::deserialize(deserializer)? {
+        Payload::Text(text) => text.into_bytes(),
+        Payload::Bytes(bytes) => bytes,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -633,6 +658,91 @@ mod tests {
         assert_eq!(loaded.generation(), Some(commit.generation.as_str()));
         assert_eq!(loaded.get(&key), Some(b"facts".as_slice()));
         assert!(matches!(loaded.status, CacheLoadStatus::Active { .. }));
+    }
+
+    #[test]
+    fn text_payloads_use_compact_strings_and_round_trip_exactly() {
+        let directory = TestDirectory::new("text-payload");
+        let cache = test_cache(&directory, CacheLimits::default());
+        let key = test_key(b"text");
+        let payload = "{\"name\":\"caf\u{e9}\",\"escaped\":\"\\n\"}\n\0";
+        let commit = cache
+            .commit([CacheEntry::new(key.clone(), payload.as_bytes().to_vec())])
+            .unwrap();
+        let encoded: serde_json::Value = serde_json::from_slice(
+            &fs::read(directory.path().join("generations").join(commit.generation)).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(encoded["body"]["entries"][0]["payload"], payload);
+        assert_eq!(cache.load().unwrap().get(&key), Some(payload.as_bytes()));
+    }
+
+    #[test]
+    fn binary_payloads_round_trip_without_loss() {
+        let directory = TestDirectory::new("binary-payload");
+        let cache = test_cache(&directory, CacheLimits::default());
+        let key = test_key(b"binary");
+        let payload: Vec<u8> = (0..=u8::MAX).collect();
+        cache
+            .commit([CacheEntry::new(key.clone(), payload.clone())])
+            .unwrap();
+
+        assert_eq!(cache.load().unwrap().get(&key), Some(payload.as_slice()));
+    }
+
+    #[test]
+    fn rejects_payload_changes_even_when_the_generation_is_valid_json() {
+        let directory = TestDirectory::new("payload-checksum");
+        let cache = test_cache(&directory, CacheLimits::default());
+        let commit = cache
+            .commit([CacheEntry::new(test_key(b"one"), b"original".to_vec())])
+            .unwrap();
+        let path = directory.path().join("generations").join(commit.generation);
+        let mut encoded: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        encoded["body"]["entries"][0]["payload"] = serde_json::json!("modified");
+        fs::write(&path, serde_json::to_vec(&encoded).unwrap()).unwrap();
+
+        let loaded = cache.load().unwrap();
+
+        assert!(loaded.is_empty());
+        let CacheLoadStatus::Reset { ignored_issues } = loaded.status else {
+            panic!("a modified payload must reset the cache");
+        };
+        assert!(
+            ignored_issues
+                .iter()
+                .any(|issue| issue.contains("checksum"))
+        );
+    }
+
+    #[test]
+    fn previous_schema_generations_are_discarded() {
+        let directory = TestDirectory::new("previous-schema");
+        let cache = test_cache(&directory, CacheLimits::default());
+        let commit = cache
+            .commit([CacheEntry::new(test_key(b"one"), b"facts".to_vec())])
+            .unwrap();
+        let path = directory.path().join("generations").join(commit.generation);
+        let mut encoded: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        encoded["body"]["schema"]["schemaVersion"] =
+            serde_json::json!(crate::cache::CACHE_SCHEMA_VERSION - 1);
+        encoded["body"]["entries"][0]["payload"] = serde_json::json!(b"facts");
+        fs::write(&path, serde_json::to_vec(&encoded).unwrap()).unwrap();
+
+        let loaded = cache.load().unwrap();
+
+        assert!(loaded.is_empty());
+        let CacheLoadStatus::Reset { ignored_issues } = loaded.status else {
+            panic!("an incompatible schema must reset the cache");
+        };
+        assert!(
+            ignored_issues
+                .iter()
+                .any(|issue| issue.contains("incompatible schema"))
+        );
     }
 
     #[test]
