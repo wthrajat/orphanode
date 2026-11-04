@@ -8,7 +8,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ignore::{WalkBuilder, gitignore::GitignoreBuilder};
+use ignore::{
+    WalkBuilder,
+    gitignore::{Gitignore, GitignoreBuilder},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
@@ -1690,6 +1693,7 @@ fn collect_package_entries(
             );
         }
     }
+    let package_root = workspace.workspace_root.join(&package.root);
     for detected in plugins {
         for pattern in detected
             .plugin
@@ -1699,16 +1703,18 @@ fn collect_package_entries(
             .chain(&detected.plugin.contributions.project_file_patterns)
             .chain(&detected.plugin.contributions.config_file_patterns)
         {
+            let Some(matcher) = compile_pattern(&package_root, &pattern.pattern) else {
+                continue;
+            };
             for path in file_set
                 .iter()
                 .filter(|path| path.starts_with(&package.root))
             {
                 let relative = path.strip_prefix(&package.root).unwrap_or(path);
-                if pattern_matches(
-                    &workspace.workspace_root.join(&package.root),
-                    &pattern.pattern,
-                    relative,
-                ) {
+                if matcher
+                    .matched_path_or_any_parents(package_root.join(relative), false)
+                    .is_ignore()
+                {
                     entries.insert(path.clone());
                 }
             }
@@ -3644,15 +3650,17 @@ fn normalize_path(path: &Path, root: &Path) -> String {
 }
 
 fn pattern_matches(root: &Path, pattern: &str, path: &Path) -> bool {
-    let mut builder = GitignoreBuilder::new(root);
-    if builder.add_line(None, pattern).is_err() {
-        return false;
-    }
-    builder.build().is_ok_and(|matcher| {
+    compile_pattern(root, pattern).is_some_and(|matcher| {
         matcher
             .matched_path_or_any_parents(root.join(path), false)
             .is_ignore()
     })
+}
+
+fn compile_pattern(root: &Path, pattern: &str) -> Option<Gitignore> {
+    let mut builder = GitignoreBuilder::new(root);
+    builder.add_line(None, pattern).ok()?;
+    builder.build().ok()
 }
 
 fn collect_deep_member_evidence(
@@ -4434,7 +4442,7 @@ mod tests {
         AnalysisIssue, DeepOverrideRelationship, DeepRawResolution, DeepSourceSpan,
         DeepSymbolIdentity, append_file_transform_edges, collect_static_config_packages,
         deep_cache_key, has_yarn_pnp_manifest, is_test_path, map_entry_to_source,
-        merge_duplicate_diagnostics, resolve_deep_raw_resolution, source_variants,
+        merge_duplicate_diagnostics, pattern_matches, resolve_deep_raw_resolution, source_variants,
     };
     use crate::discovery::configuration::{ProjectConfiguration, ProjectConfigurationKind};
     use crate::{
@@ -4476,6 +4484,27 @@ mod tests {
         let issues = AnalysisIssue::all();
         assert_eq!(issues.len(), 6);
         assert!(issues.contains(&AnalysisIssue::Members));
+    }
+
+    #[test]
+    fn entry_patterns_preserve_root_parent_and_negation_semantics() {
+        let root = Path::new("/workspace/packages/app");
+        for (pattern, path, expected) in [
+            ("/src/*.ts", "src/index.ts", true),
+            ("/src/*.ts", "nested/src/index.ts", false),
+            ("generated", "src/generated/index.ts", true),
+            ("**/*.{test,spec}.ts", "src/button.spec.ts", true),
+            ("**/*.{test,spec}.ts", "src/button.ts", false),
+            ("!src/index.ts", "src/index.ts", false),
+            ("\\!important.ts", "!important.ts", true),
+            ("[z-a]", "src/index.ts", false),
+        ] {
+            assert_eq!(
+                pattern_matches(root, pattern, Path::new(path)),
+                expected,
+                "{pattern}: {path}"
+            );
+        }
     }
 
     #[test]
