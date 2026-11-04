@@ -135,6 +135,7 @@ pub(crate) struct FactCache {
     config: ConfigDigest,
     profile: ProfileDigest,
     memory: Mutex<BTreeMap<String, MemoryCachedFact>>,
+    status: Mutex<&'static str>,
 }
 
 #[derive(Debug, Clone)]
@@ -189,6 +190,7 @@ impl FactCache {
             config: ConfigDigest::of_bytes(config_bytes),
             profile: ProfileDigest::of_bytes(profile_bytes),
             memory: Mutex::new(BTreeMap::new()),
+            status: Mutex::new("empty"),
         })
     }
 }
@@ -719,12 +721,12 @@ fn parse_files(
     )
     .entered();
     let fact_loading_started = Instant::now();
-    let snapshot = cache.map(|cache| cache.store.load()).transpose()?;
-    let cache_status = snapshot.as_ref().map(|snapshot| match &snapshot.status {
-        CacheLoadStatus::Empty => "empty",
-        CacheLoadStatus::Active { .. } => "active",
-        CacheLoadStatus::Recovered { .. } => "recovered",
-        CacheLoadStatus::Reset { .. } => "reset",
+    let mut snapshot = None;
+    let mut cache_status = cache.map(|cache| {
+        *cache
+            .status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     });
     let mut parsed = (0..prepared_files.len())
         .map(|_| None)
@@ -758,6 +760,19 @@ fn parse_files(
                 key,
             });
             continue;
+        }
+        if snapshot.is_none()
+            && let Some(cache) = cache
+        {
+            let _cache_span = tracing::info_span!("cache_load").entered();
+            let loaded = cache.store.load()?;
+            cache_status = Some(match &loaded.status {
+                CacheLoadStatus::Empty => "empty",
+                CacheLoadStatus::Active { .. } => "active",
+                CacheLoadStatus::Recovered { .. } => "recovered",
+                CacheLoadStatus::Reset { .. } => "reset",
+            });
+            snapshot = Some(loaded);
         }
         let bytes = fs::metadata(&file.physical_path)
             .map_err(|source| ScanError::ReadSource {
@@ -868,6 +883,16 @@ fn parse_files(
     };
     let persist_duration = persist_started.elapsed();
     drop(persist_span);
+    if let Some(cache) = cache {
+        *cache
+            .status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = if generation_written {
+            "active"
+        } else {
+            cache_status.unwrap_or("empty")
+        };
+    }
     let report = cache.map(|_| CacheReport {
         status: cache_status.unwrap_or("empty").to_owned(),
         hits,
@@ -2416,6 +2441,9 @@ mod tests {
         .expect("first scan");
 
         fs::write(&source, "this is not valid JavaScript {{{\n").expect("replace source");
+        let generations = cache.store.root().join("generations");
+        fs::remove_dir_all(&generations).expect("remove disk generations");
+        fs::write(&generations, "not a directory").expect("make disk cache unreadable");
         let (second, _) = scan_with_fact_cache_measured(
             &request,
             AnalysisLimits::default(),
@@ -2439,6 +2467,10 @@ mod tests {
         );
         assert_eq!(second.cache.as_ref().map(|cache| cache.hits), Some(1));
         assert_eq!(second.cache.as_ref().map(|cache| cache.misses), Some(0));
+        assert_eq!(
+            second.cache.as_ref().map(|cache| cache.status.as_str()),
+            Some("active")
+        );
     }
 
     #[test]
