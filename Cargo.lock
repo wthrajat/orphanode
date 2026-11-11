@@ -2364,8 +2364,8 @@ checksum = "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
 
 [[package]]
 name = "posthog-rs"
-version = "0.30.0"
-source = "git+https://github.com/wthrajat/posthog-rs?branch=feat%2Ftracing-span-context#9a77b5671558bcdd7c65b087de3906b7a87f7724"
+version = "0.31.2"
+source = "git+https://github.com/wthrajat/posthog-rs?branch=feat%2Ftracing-span-context#f09e2939df87c6761182d9dc40a890e2fa41aebf"
 dependencies = [
  "backtrace",
  "base64 0.22.1",
@@ -2393,13 +2393,11 @@ dependencies = [
 [[package]]
 name = "posthog-rs-otel"
 version = "0.1.0"
-source = "git+https://github.com/wthrajat/posthog-rs?branch=feat%2Ftracing-span-context#9a77b5671558bcdd7c65b087de3906b7a87f7724"
+source = "git+https://github.com/wthrajat/posthog-rs?branch=feat%2Ftracing-span-context#f09e2939df87c6761182d9dc40a890e2fa41aebf"
 dependencies = [
  "opentelemetry",
  "opentelemetry_sdk",
  "posthog-rs",
- "tracing",
- "tracing-opentelemetry",
 ]
 
 [[package]]
